@@ -1,0 +1,43 @@
+# ---------------------------------------------------------------- secrets (critical)
+# The API token lives in AWS Secrets Manager and is never written to the repo.
+.env
+.env.*
+!.env.example
+client/.streamlit/secrets.toml
+!client/.streamlit/secrets.toml.example
+*.pem
+credentials
+
+# ------------------------------------------------------------------------------ CDK
+infra/cdk.out/
+infra/node_modules/
+infra/*.js
+infra/*.d.ts
+!infra/jest.config.js
+cdk.context.json
+
+# --------------------------------------------------------------------------- Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Vendored Lambda dependencies are built by scripts/build_lambda_deps.ps1, not committed.
+services/ingest/vendor/
+
+# ------------------------------------------------------------------------------- IDE
+.idea/
+.vscode/
+*.swp
+
+# ------------------------------------------------------------------------------- OS
+.DS_Store
+Thumbs.db
+
+# ------------------------------------------------------------------------- artifacts
+*.log
+out.json
+kb-index.json.gz
