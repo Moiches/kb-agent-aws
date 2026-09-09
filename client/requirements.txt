@@ -1,0 +1,4 @@
+# Local client only. The deployed Lambdas deliberately have no third-party dependencies;
+# a laptop app is a different context, so plain `requests` is the right call here.
+streamlit>=1.40,<2
+requests>=2.32,<3

@@ -1,0 +1,107 @@
+{
+  "_about": [
+    "Evaluation set for the knowledge base agent.",
+    "",
+    "JSON rather than YAML so the harness needs no third-party parser, matching the",
+    "dependency discipline the Lambdas follow.",
+    "",
+    "Eleven questions, and the mix is deliberate: seven the system should answer well, two",
+    "it should refuse, and two designed to fail. An evaluation that only contains questions",
+    "the system handles proves nothing except that the author chose the questions.",
+    "",
+    "`expect` is what should happen, not what does. Where the two differ, the difference is",
+    "the finding."
+  ],
+
+  "questions": [
+    {
+      "id": "Q1",
+      "question": "How long does an Enterprise customer have to request a refund?",
+      "expect_documents": ["refund-and-cancellation-policy.md"],
+      "expect": "answered",
+      "tests": "Direct factual lookup. This is the example question from the project brief itself.",
+      "correct_answer": "30 days from the invoice date."
+    },
+    {
+      "id": "Q2",
+      "question": "What service credit applies if uptime drops to 99.0%?",
+      "expect_documents": ["enterprise-sla.md"],
+      "expect": "answered",
+      "tests": "Retrieval over a table, plus a boundary condition: 99.0% falls in the FIRST row ('below 99.9% but at or above 99.0%'), not the second.",
+      "correct_answer": "10% of the monthly fee."
+    },
+    {
+      "id": "Q3",
+      "question": "Where is customer data stored, and is it encrypted at rest?",
+      "expect_documents": ["security-and-data-handling.md"],
+      "expect": "answered",
+      "tests": "Compound question requiring two facts from one document.",
+      "correct_answer": "US (us-east-1) or EU (eu-west-1), chosen at account creation; encrypted at rest with AES-256."
+    },
+    {
+      "id": "Q4",
+      "question": "What is the response time for a Severity 1 incident?",
+      "expect_documents": ["enterprise-sla.md", "support-escalation-runbook.md"],
+      "expect": "answered",
+      "tests": "The same fact appears in two documents with different wording. Does retrieval surface both?",
+      "correct_answer": "15 minutes initial response, 24x7."
+    },
+    {
+      "id": "Q5",
+      "question": "How do I set up SAML single sign-on?",
+      "expect_documents": ["customer-onboarding-faq.md"],
+      "expect": "answered",
+      "tests": "Chunking of Q&A-formatted prose rather than headed sections.",
+      "correct_answer": "Four steps: copy ACS URL and Entity ID, create the IdP app, map email and displayName, paste metadata back and verify."
+    },
+    {
+      "id": "Q6",
+      "question": "What happens if I exceed my monthly API request quota?",
+      "expect_documents": ["pricing-and-plans.md"],
+      "expect": "answered",
+      "tests": "Quantitative fact. The local harness abstained on this one incorrectly, which is what first exposed the relevance floor as miscalibrated.",
+      "correct_answer": "Service is not suspended; overage is billed automatically at the plan's rate."
+    },
+    {
+      "id": "Q7",
+      "question": "Who do I page if the on-call engineer does not respond within 15 minutes?",
+      "expect_documents": ["support-escalation-runbook.md"],
+      "expect": "answered",
+      "tests": "Procedural retrieval from a numbered list.",
+      "correct_answer": "The secondary on-call; then the engineering manager on duty after a further 15 minutes."
+    },
+
+    {
+      "id": "Q8",
+      "question": "Can I still get a refund 45 days after my invoice?",
+      "expect_documents": ["refund-and-cancellation-policy.md"],
+      "expect": "answered",
+      "tests": "NEGATION. Retrieval is easy; the model must reason that 45 > 30 and answer 'no' rather than reciting the policy and leaving the reader to infer it.",
+      "correct_answer": "No. The Enterprise window is 30 days and requests after it are not eligible."
+    },
+    {
+      "id": "Q9",
+      "question": "What is the difference between a refund and a service credit?",
+      "expect_documents": ["refund-and-cancellation-policy.md", "enterprise-sla.md"],
+      "expect": "answered",
+      "tests": "CROSS-DOCUMENT SYNTHESIS. The distinction is stated in both documents but never in one place.",
+      "correct_answer": "A refund returns money against the original payment; a service credit offsets a future invoice and is never paid in cash."
+    },
+    {
+      "id": "Q10",
+      "question": "Do you sign HIPAA Business Associate Agreements?",
+      "expect_documents": [],
+      "expect": "abstain",
+      "tests": "ABSTENTION. Nothing in the corpus mentions HIPAA. The nearby security document is a tempting near-miss.",
+      "correct_answer": "Should decline to answer."
+    },
+    {
+      "id": "Q11",
+      "question": "¿Cuál es la política de reembolsos para clientes enterprise?",
+      "expect_documents": ["refund-and-cancellation-policy.md"],
+      "expect": "answered",
+      "tests": "CROSS-LINGUAL. Question in Spanish against an English corpus. A false abstention here would be the most expensive failure mode in an enterprise assistant: refusing a question it can answer.",
+      "correct_answer": "Same as Q1: 30 days from the invoice date."
+    }
+  ]
+}
