@@ -1,0 +1,692 @@
+openapi: 3.0.3
+
+info:
+  title: Knowledge Base Agent API
+  version: "1.0.0"
+  description: |
+    Retrieval-augmented question answering over a small corpus of business documents.
+
+    Every claim in an answer carries an inline `[chunk_id]` citation, and the API verifies
+    each one against what was actually retrieved before returning it. Citations the model
+    invented are stripped from the answer and reported in `metadata.dropped_citations`.
+
+    **Every route requires authentication, including `/health`.** The brief requires the API
+    not be publicly callable, and taking that literally has a useful side effect: `curl
+    /health` with no token returning 401 is the cleanest demonstration that auth works.
+
+    **Data flow:** retrieved document chunks and the user's question are sent to OpenRouter,
+    a third-party provider, inside the generation prompt. Storage, compute, authentication
+    and logging stay within AWS. See ADR-09 for why, and for the mitigations.
+
+servers:
+  - url: https://{apiId}.execute-api.{region}.amazonaws.com/{stage}
+    description: Deployed stack. Read the concrete URL from the `ApiBaseUrl` stack output.
+    variables:
+      apiId: { default: "xxxxxxxxxx" }
+      region: { default: "us-east-1" }
+      stage: { default: "dev" }
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      summary: Liveness, and whether the knowledge base is actually loaded
+      description: |
+        Returns `ok` when the index is loaded and `degraded` when it is not.
+
+        `degraded` is a real state, not an error: it exists between `cdk deploy` and
+        `npm run seed`, and distinguishing "up but empty" from "broken" is the difference
+        between a reviewer knowing what to do next and filing a bug.
+      operationId: getHealth
+      responses:
+        "200":
+          description: Reachable. Check `status` to tell loaded from unseeded.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+              examples:
+                loaded:
+                  summary: Knowledge base loaded
+                  value:
+                    status: ok
+                    kb_loaded: true
+                    version: "1.0.0"
+                    provider: openrouter
+                    model: anthropic/claude-haiku-4.5
+                    embedding_model: openai/text-embedding-3-small
+                    kb_version: "2026-09-07T22:48:36+00:00"
+                    chunk_count: 52
+                    document_count: 8
+                    dimensions: 512
+                    index: { loaded: true, load_ms: 64.2, etag: '"e6670ae0..."' }
+                degraded:
+                  summary: Deployed but not yet seeded
+                  value:
+                    status: degraded
+                    kb_loaded: false
+                    version: "1.0.0"
+                    provider: openrouter
+                    detail: knowledge base not seeded yet; run the seed command from the stack outputs
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /query:
+    post:
+      summary: Ask a question against the knowledge base
+      operationId: postQuery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/QueryRequest" }
+            examples:
+              simple:
+                value:
+                  question: What is the refund policy for enterprise customers?
+                  top_k: 5
+      responses:
+        "200":
+          description: |
+            An answer, or a documented abstention. Both are 200: refusing to answer a
+            question the corpus does not cover is correct behaviour, not a failure.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueryResponse" }
+              examples:
+                answered:
+                  summary: Grounded answer with verified citations
+                  value:
+                    answer: Enterprise customers may request a refund within 30 days of the invoice date [refund-and-cancellation-policy.md#chunk-1].
+                    confidence: 0.67
+                    grounding: medium
+                    sources:
+                      - document_id: refund-and-cancellation-policy.md
+                        document_title: Refund and Cancellation Policy
+                        chunk_id: refund-and-cancellation-policy.md#chunk-1
+                        section: Refund windows by plan
+                        page: null
+                        score: 0.6787
+                        excerpt: "## Refund windows by plan | Plan | Refund window | ..."
+                        cited: true
+                    metadata:
+                      provider: openrouter
+                      model: anthropic/claude-haiku-4.5
+                      embedding_model: openai/text-embedding-3-small
+                      retrieval_strategy: in_memory_cosine_topk
+                      request_id: b5a8f6d8-8883-4dbb-965a-cf382764e3f5
+                      session_id: 5f3a9c1e-7b2d-4e88-9a11-0c6f2e8d4b73
+                      kb_version: "2026-09-07T22:48:36+00:00"
+                      chunks_searched: 52
+                      top_score: 0.6787
+                      retrieval_ms: 214.4
+                      generation_ms: 2513.3
+                      latency_ms: 2727.7
+                      input_tokens: 1062
+                      output_tokens: 193
+                      estimated_cost_usd: 0.002027
+                      confidence_components:
+                        retrieval_strength: 0.6968
+                        consensus: 0.7691
+                        citation_coverage: 0.5
+                      dropped_citations: []
+                abstainedBelowFloor:
+                  summary: Abstained - nothing scored high enough to read
+                  description: |
+                    `sources` is empty on purpose. Showing near-miss passages beside "I could
+                    not find this" would invite the reader to believe the answer came from them.
+                  value:
+                    answer: I could not find information about that in the knowledge base.
+                    confidence: 0.22
+                    grounding: insufficient_context
+                    sources: []
+                    metadata:
+                      request_id: 211827ad-141d-4ef8-a413-34ccd26f8920
+                      top_score: 0.3264
+                      abstained: true
+                      abstain_reason: top_score_below_floor
+                abstainedByModel:
+                  summary: Abstained - passages were read and rejected
+                  description: |
+                    Here `sources` is populated, with `cited: false` on every entry. The
+                    passages were retrieved and the model judged they do not answer the
+                    question; they are returned so a reader can check that judgement. It
+                    usually shows the right document was found and the wrong section of it,
+                    which is a different problem from the document being absent.
+                  value:
+                    answer: The passages describe the tool's applications, not its risks.
+                    confidence: 0.44
+                    grounding: insufficient_context
+                    sources:
+                      - document_id: enterprise-sla.md
+                        chunk_id: enterprise-sla.md#chunk-6
+                        score: 0.6009
+                        excerpt: "Credits are applied to the following invoice ..."
+                        cited: false
+                    metadata:
+                      request_id: 6b2c1f70-2f11-4a8c-9a0e-7d4c0d9a2e51
+                      top_score: 0.6009
+                      abstained: true
+                      abstain_reason: model_reported_insufficient_context
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+        "504": { $ref: "#/components/responses/GatewayTimeout" }
+
+  /documents:
+    get:
+      summary: What is stored, what is searchable, and where they disagree
+      description: |
+        Reports two realities rather than one. `documents` is what sits in the bucket;
+        `index` is what the query path can actually retrieve. They drift, because putting a
+        file in S3 indexes nothing until the ingest runs, and that gap used to be invisible:
+        `/health` only ever knew about the index, so an uploaded document that never got
+        embedded looked exactly like a document the system had decided to ignore.
+
+        Read `index.in_sync` first. When it is false, `pending_ingest` names files that are
+        stored but not searchable and `orphaned_in_index` names the reverse -- content still
+        being answered from after its source was removed, which is the more dangerous of the
+        two.
+      operationId: listDocuments
+      responses:
+        "200":
+          description: The stored corpus and the indexed corpus, side by side.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocumentList" }
+              examples:
+                inSync:
+                  summary: Stored and searchable agree
+                  value:
+                    documents:
+                      - document_id: enterprise-sla.md
+                        size_bytes: 2356
+                        last_modified: "2026-09-08T15:07:47+00:00"
+                        supported: true
+                        indexed: true
+                        chunks: 6
+                    index:
+                      kb_version: "2026-09-08T22:08:39+00:00"
+                      chunk_count: 226
+                      document_count: 9
+                      in_sync: true
+                      pending_ingest: []
+                      orphaned_in_index: []
+                drifted:
+                  summary: A file was uploaded but never indexed
+                  value:
+                    documents:
+                      - document_id: new-paper.pdf
+                        size_bytes: 3648424
+                        last_modified: "2026-09-08T15:27:33+00:00"
+                        supported: true
+                        indexed: false
+                        chunks: 0
+                    index:
+                      kb_version: "2026-09-08T21:12:13+00:00"
+                      chunk_count: 52
+                      document_count: 8
+                      in_sync: false
+                      pending_ingest: [new-paper.pdf]
+                      orphaned_in_index: []
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+    post:
+      summary: Grant permission to upload a document
+      description: |
+        Returns a presigned S3 POST. The file is submitted straight to S3 and never passes
+        through this API -- API Gateway caps a request body at 10 MB, which a single real
+        PDF exceeds, so proxying the bytes would build in a ceiling that no tuning removes.
+
+        Three constraints are attached to the signature, which means **S3 enforces them**:
+        a `content-length-range` up to `max_bytes`, the exact object key under `raw/`, and a
+        five-minute expiry. This is a presigned POST rather than a PUT precisely because a
+        PUT cannot bound the body, which would leave the size limit in the client where it
+        is a suggestion rather than a limit.
+
+        Filenames are validated before anything is signed: no directories, no leading dot,
+        200 characters maximum, and only file types the ingest can read. A `.docx` is
+        refused rather than stored -- accepting it would create a document visibly present
+        in the listing and permanently absent from every answer.
+
+        Nothing has to trigger the ingest afterwards. S3 emits an event on the new object
+        and the index rebuilds on its own, debounced through a queue.
+      operationId: createUpload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename]
+              properties:
+                filename:
+                  type: string
+                  minLength: 3
+                  maxLength: 200
+                  example: employee-handbook.pdf
+      responses:
+        "200":
+          description: Upload authorized. Submit the file to `upload.url`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadGrant" }
+        "400":
+          description: |
+            Unusable filename: a directory component, a leading dot, too long, or a file
+            type the ingest cannot read. No URL is signed, so nothing can be written.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /documents/{documentId}:
+    delete:
+      summary: Remove a document and rebuild the index without it
+      description: |
+        The object is deleted synchronously; the reindex is not, and the response is
+        **202 Accepted** rather than 200 because the deletion is not in effect yet.
+
+        Two delays run back to back. Rebuilding the index artifact measures 1-11 seconds for
+        a corpus this size. Then the query Lambda, which holds the index in memory, re-checks
+        it at most once every `INDEX_REFRESH_SECONDS` (60 by default). Measured end to end:
+        artifact rebuilt at 6 seconds, query path still answering from the old index until
+        60. **A deleted document stays searchable for about a minute.**
+
+        `GET /documents` reports `index.in_sync` against the artifact in S3, so it turns true
+        as soon as the rebuild lands -- before the query path has caught up. To see whether
+        answers reflect the deletion, compare `GET /health`'s `kb_version` (what the query
+        Lambda actually loaded) against `index.kb_version`.
+
+        A failed reindex still returns 202 with `reindex: "failed"`, because the object is
+        already gone: reporting a 500 would describe a deletion that happened as one that
+        did not.
+
+        The id is resolved against the actual listing rather than concatenated into an S3
+        key, so a traversal like `..%2Findex%2Fkb-index.json.gz` is a 404 rather than a way
+        to delete the index.
+      operationId: deleteDocument
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema: { type: string }
+          description: |
+            The filename as returned by `GET /documents`, URL-encoded. Names contain spaces
+            in practice, and a double-encoded value is accepted too.
+          example: enterprise-sla.md
+      responses:
+        "202":
+          description: Deleted. Reindexing started; the corpus is briefly out of date.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeleteResult" }
+              example:
+                deleted: old-policy.md
+                remaining_documents: 8
+                reindex: started
+                message: >-
+                  Document deleted. Reindexing was started in the background; until it
+                  finishes the deleted document is still searchable. Poll GET /documents and
+                  wait for index.in_sync.
+                request_id: d1a0e481-d1b9-4957-949b-5ccdd36a2469
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: No such document. Also what a path-traversal attempt receives.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /ingest:
+    post:
+      summary: "Not implemented — documented as a proposed extension"
+      description: |
+        A full document ingestion workflow is intentionally out of scope, which the brief
+        allows. The knowledge base is pre-seeded at deploy time from version-controlled
+        documents in `sample-docs/`, so one deployment produces a working system.
+
+        Adding this endpoint would mean: accepting an upload to `raw/`, triggering the
+        existing ingest Lambda, and moving index construction to incremental rather than
+        full rebuild. The ingest path itself already exists and is invoked directly today.
+      deprecated: true
+      responses:
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        A 48-character token generated by CDK at deploy time and stored in Secrets Manager.
+        Read it with the `GetTokenCommand` stack output. It never exists in a file or in the
+        repository.
+
+        Three layers reject an unauthorised request, and only the second runs code:
+        API Gateway checks `^Bearer [A-Za-z0-9_-]{32,}$` and rejects a malformed value
+        **without invoking any Lambda**; the authorizer then compares with
+        `hmac.compare_digest` in constant time; the resulting policy is cached for 5 minutes.
+
+  schemas:
+    QueryRequest:
+      type: object
+      required: [question]
+      additionalProperties: false
+      properties:
+        question:
+          type: string
+          minLength: 3
+          maxLength: 1000
+          description: Validated at the gateway, so a malformed body never reaches or bills compute.
+        session_id:
+          type: string
+          maxLength: 64
+          description: Groups requests in the query log. Generated if omitted.
+        top_k:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 5
+          description: |
+            Passages to retrieve. A per-document cap of 3 also applies, so one long document
+            cannot monopolise the context.
+        style:
+          type: string
+          enum: [standard, simple]
+          default: standard
+          description: |
+            Answer register. `simple` is "explain like I'm 10": plain language, a direct
+            answer first, then the reasoning.
+
+            **It changes register, not the evidence bar.** Both styles carry identical
+            grounding rules, so citations, abstention and the confidence score behave the
+            same way. Rejected with `400 bad_request` if it is not one of these two.
+
+    QueryResponse:
+      type: object
+      required: [answer, confidence, grounding, sources, metadata]
+      properties:
+        answer:
+          type: string
+          description: |
+            Markdown. Every claim carries an inline `[chunk_id]` citation. Citations that do
+            not correspond to a retrieved passage have already been removed.
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: |
+            `0.50·retrieval_strength + 0.25·consensus + 0.25·citation_coverage`.
+
+            **This measures retrieval quality, not factual correctness.** A perfect retrieval
+            followed by a bad generation still scores high; the evaluation set contains such
+            a case. See EVALUATION.md.
+        grounding:
+          type: string
+          enum: [high, medium, low, insufficient_context]
+          description: The confidence bucketed into something a user can act on.
+        sources:
+          type: array
+          description: |
+            The retrieved passages. On an abstention this depends on which of the two
+            abstention paths fired: empty when nothing cleared the relevance floor, and
+            populated -- every entry with `cited: false` -- when passages were retrieved and
+            the model rejected them. `grounding: "insufficient_context"` is the signal to
+            present them as evidence that was considered and found wanting, not as support.
+          items: { $ref: "#/components/schemas/Source" }
+        metadata: { $ref: "#/components/schemas/Metadata" }
+
+    DocumentList:
+      type: object
+      required: [documents, index]
+      properties:
+        documents:
+          type: array
+          items: { $ref: "#/components/schemas/StoredDocument" }
+        index: { $ref: "#/components/schemas/IndexSummary" }
+
+    StoredDocument:
+      type: object
+      properties:
+        document_id: { type: string, example: enterprise-sla.md }
+        size_bytes: { type: integer }
+        last_modified: { type: string, format: date-time }
+        supported:
+          type: boolean
+          description: |
+            False for a file type the ingest will skip. Reported rather than filtered out --
+            a document being silently ignored is exactly what someone needs to be told.
+        indexed: { type: boolean, description: Whether this document is currently searchable. }
+        chunks: { type: integer, description: Passages this document contributes to the index. }
+
+    IndexSummary:
+      type: object
+      properties:
+        kb_version: { type: string, format: date-time, nullable: true }
+        chunk_count: { type: integer }
+        document_count: { type: integer }
+        in_sync:
+          type: boolean
+          description: The field to read first. False means the searchable corpus is not the stored corpus.
+        pending_ingest:
+          type: array
+          items: { type: string }
+          description: Stored but not indexed. Run the seed to close the gap.
+        orphaned_in_index:
+          type: array
+          items: { type: string }
+          description: Indexed but no longer stored -- still being answered from. The more dangerous drift.
+
+    UploadGrant:
+      type: object
+      properties:
+        document_id: { type: string }
+        replaces_existing:
+          type: boolean
+          description: The bucket is versioned, so replacing keeps the previous copy.
+        upload:
+          type: object
+          description: |
+            Submit as `multipart/form-data`: every entry of `fields` first, then the file
+            last under the field name `file`. S3 answers 204 on success.
+          properties:
+            url: { type: string, format: uri }
+            fields: { type: object, additionalProperties: { type: string } }
+            method: { type: string, enum: [POST] }
+        max_bytes:
+          type: integer
+          description: Enforced by S3 through a signed condition, not by the client.
+        expires_in: { type: integer, description: Seconds until the signature is worthless. }
+        message: { type: string }
+        request_id: { type: string }
+
+    DeleteResult:
+      type: object
+      properties:
+        deleted: { type: string }
+        remaining_documents: { type: integer }
+        reindex:
+          type: string
+          enum: [started, failed, unavailable]
+          description: |
+            `started` is the normal case. `failed` and `unavailable` still accompany a 202,
+            because the document is already gone; the index just has not caught up.
+        message: { type: string }
+        request_id: { type: string }
+
+    Source:
+      type: object
+      properties:
+        document_id: { type: string }
+        document_title: { type: string, nullable: true }
+        chunk_id: { type: string, example: enterprise-sla.md#chunk-2 }
+        section:
+          type: string
+          nullable: true
+          description: Markdown heading in force, so a citation reads "Enterprise SLA › Service credits".
+        page: { type: integer, nullable: true, description: PDF page number, when the source is a PDF. }
+        score: { type: number, description: Cosine similarity. Vectors are unit-normalized, so this is a dot product. }
+        excerpt: { type: string }
+        cited:
+          type: boolean
+          description: |
+            Whether the model actually cited this passage, as opposed to merely retrieving it.
+            Retrieving five and citing two is correct behaviour, not a shortfall.
+
+    Metadata:
+      type: object
+      properties:
+        provider: { type: string, example: openrouter }
+        style:
+          type: string
+          enum: [standard, simple]
+          description: The answer style that served this request. Echoed so a stored answer stays interpretable.
+        model: { type: string, description: What actually served the request. OpenRouter routes, so this can differ from what was configured. }
+        embedding_model: { type: string }
+        retrieval_strategy: { type: string, example: in_memory_cosine_topk }
+        request_id:
+          type: string
+          description: |
+            The same id appears in the API Gateway access log, the Lambda structured log, the
+            X-Ray trace (via `xray_trace_id`), the DynamoDB query-log item and this response.
+            One id reconstructs the whole request path.
+        session_id: { type: string }
+        kb_version: { type: string, format: date-time }
+        chunks_searched: { type: integer }
+        top_score:
+          type: number
+          description: |
+            Best similarity score. Present even on an abstention, where `sources` is empty and
+            the score that triggered the abstention would otherwise be invisible.
+        retrieval_ms: { type: number }
+        generation_ms: { type: number }
+        latency_ms: { type: number }
+        input_tokens: { type: integer }
+        output_tokens: { type: integer }
+        estimated_cost_usd: { type: number, description: Debugging aid, not a billing source of truth. }
+        confidence_components:
+          type: object
+          description: The three terms of the confidence score, exposed so it is auditable.
+          properties:
+            retrieval_strength: { type: number }
+            consensus: { type: number }
+            citation_coverage: { type: number }
+        dropped_citations:
+          type: array
+          items: { type: string }
+          description: Citations the model invented, removed from the answer. Evidence that verification ran.
+        abstained: { type: boolean }
+        abstain_reason:
+          type: string
+          enum: [top_score_below_floor, model_reported_insufficient_context]
+          description: |
+            Which of the two abstention paths fired: the pre-generation short circuit when
+            nothing scored above the relevance floor, or the model emitting its sentinel.
+
+    Health:
+      type: object
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        kb_loaded: { type: boolean }
+        version: { type: string }
+        provider: { type: string }
+        model: { type: string }
+        embedding_model: { type: string }
+        kb_version: { type: string }
+        chunk_count: { type: integer }
+        document_count: { type: integer }
+        dimensions: { type: integer }
+        detail: { type: string, description: Present when degraded, saying what to do about it. }
+        index:
+          type: object
+          properties:
+            loaded: { type: boolean }
+            load_ms: { type: number }
+            etag: { type: string }
+
+    Error:
+      type: object
+      required: [error, message, request_id]
+      properties:
+        error: { type: string }
+        message: { type: string, description: Never contains a stack trace. }
+        request_id: { type: string }
+        hint: { type: string, description: Present when there is a concrete next action. }
+
+  responses:
+    BadRequest:
+      description: Invalid body, `top_k` out of range, or question outside the length bounds.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: bad_request, message: "'question' must be at least 3 characters.", request_id: abc-123 }
+
+    Unauthorized:
+      description: |
+        No `Authorization` header, or one that fails the token regex. Rejected by API Gateway
+        **without invoking any Lambda**, which removes both a DoS vector and a way to run up a bill.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: unauthorized, message: Missing or malformed authorization token., request_id: abc-123 }
+
+    Forbidden:
+      description: A well-formed token that is not the right one. Distinct from 401 on purpose.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: forbidden, message: The provided token is not valid., request_id: abc-123 }
+
+    NotFound:
+      description: No such route.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: not_found, message: No such route., request_id: abc-123 }
+
+    RateLimited:
+      description: Stage throttling, 5 requests per second with a burst of 10 in dev.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: rate_limited, message: Too many requests. Retry after a short delay., request_id: abc-123 }
+
+    InternalError:
+      description: |
+        Unexpected failure, or the provider rejecting our credential (`model_access_denied`).
+        The stack trace goes to the log keyed by `request_id`, never to the caller.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: internal_error, message: An unexpected error occurred., request_id: abc-123 }
+
+    Unavailable:
+      description: |
+        `kb_unavailable` when the knowledge base has not been seeded, or `model_throttled` /
+        `model_unavailable` when the provider is rate limiting or down.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: kb_unavailable
+            message: The knowledge base has not been seeded yet.
+            request_id: abc-123
+            hint: Run the seed command from the stack outputs, then retry.
+
+    GatewayTimeout:
+      description: The model provider did not respond in time.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: model_timeout, message: Provider timed out., request_id: abc-123 }
