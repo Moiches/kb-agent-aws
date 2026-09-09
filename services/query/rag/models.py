@@ -76,6 +76,9 @@ class QueryRequest:
     question: str
     session_id: str
     top_k: int
+    # "standard" or "simple". Controls register only -- both styles carry identical
+    # grounding rules, so citation verification and the confidence score work the same way.
+    style: str = "standard"
 
 
 @dataclass

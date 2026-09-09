@@ -9,7 +9,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-for code_root in (ROOT / "services" / "query", ROOT / "services" / "ingest"):
+for code_root in (ROOT / "services" / "query", ROOT / "services" / "ingest",
+                  ROOT / "services" / "documents"):
     path = str(code_root)
     if path not in sys.path:
         sys.path.insert(0, path)

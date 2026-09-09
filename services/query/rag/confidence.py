@@ -24,6 +24,9 @@ CITATION_RE = re.compile(r"\[([A-Za-z0-9._\-/ ]+#chunk-\d+)\]")
 GROUNDING_HIGH = 0.70
 GROUNDING_MEDIUM = 0.45
 
+# Citations beyond this add no evidence of grounding. See compute_confidence.
+CITATION_SUFFICIENCY = 2
+
 
 def extract_citations(answer: str) -> list[str]:
     """Every chunk_id the model cited, in order of first appearance."""
@@ -81,10 +84,23 @@ def compute_confidence(
     # Do the runners-up support the leader, or is it an isolated spike?
     consensus = _clamp01((sum(scores) / len(scores)) / top_score) if top_score > 0 else 0.0
 
-    # Of the passages we supplied, how many did the model actually lean on?
+    # Did the model lean on the passages at all?
+    #
+    # This term guards against one specific failure: the model ignoring the context and
+    # answering from memory. It is NOT a measure of how much of the context was used.
+    #
+    # The original version divided by the number of retrieved passages, which made the score
+    # depend on `top_k` -- a value the caller chooses, unrelated to how many passages an
+    # answer needs. Measured on the evaluation set, that inverted quality: Q2 retrieved
+    # perfectly (strength 1.0) and cited the single passage that answered the question,
+    # scoring 0.2; Q9, the hardest question with the weakest retrieval, cited four passages
+    # and scored 0.8. Precision was being punished.
+    #
+    # Two citations is the bar. Beyond that, more citations are not more grounding -- they
+    # are usually just a wordier answer.
     retrieved = set(retrieved_chunk_ids)
     used = len({c for c in cited_chunk_ids if c in retrieved})
-    citation_coverage = _clamp01(used / len(retrieved)) if retrieved else 0.0
+    citation_coverage = _clamp01(used / CITATION_SUFFICIENCY) if retrieved else 0.0
 
     confidence = (
         0.50 * retrieval_strength + 0.25 * consensus + 0.25 * citation_coverage

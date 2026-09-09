@@ -138,3 +138,44 @@ def test_model_abstention_overrides_the_bands():
         grounding_label(0.88, top_score=0.95, floor=FLOOR, abstained=True)
         == "insufficient_context"
     )
+
+
+# ------------------------------------------------- citation coverage is top_k-independent
+
+
+def test_citing_precisely_is_not_punished():
+    """Regression test for a defect the evaluation set exposed.
+
+    Coverage used to divide by the number of retrieved passages, so a model that answered
+    from the single passage that mattered scored 0.2 while a wordier answer citing four
+    scored 0.8 -- with worse retrieval. Precision was being penalised.
+    """
+    retrieved = [f"doc.md#chunk-{i}" for i in range(5)]
+    _, precise = compute_confidence([0.9] * 5, retrieved[:2], retrieved, floor=FLOOR, ceil=CEIL)
+    _, verbose = compute_confidence([0.9] * 5, retrieved, retrieved, floor=FLOOR, ceil=CEIL)
+    assert precise["citation_coverage"] == verbose["citation_coverage"] == 1.0
+
+
+def test_coverage_does_not_depend_on_top_k():
+    """The same answer must score the same whether the caller asked for 3 passages or 10."""
+    cited = ["doc.md#chunk-0", "doc.md#chunk-1"]
+    _, small = compute_confidence(
+        [0.9] * 3, cited, [f"doc.md#chunk-{i}" for i in range(3)], floor=FLOOR, ceil=CEIL
+    )
+    _, large = compute_confidence(
+        [0.9] * 10, cited, [f"doc.md#chunk-{i}" for i in range(10)], floor=FLOOR, ceil=CEIL
+    )
+    assert small["citation_coverage"] == large["citation_coverage"]
+
+
+def test_citing_nothing_still_scores_zero():
+    """The failure the term exists to catch must still be caught."""
+    retrieved = ["doc.md#chunk-0", "doc.md#chunk-1"]
+    _, components = compute_confidence([0.9, 0.8], [], retrieved, floor=FLOOR, ceil=CEIL)
+    assert components["citation_coverage"] == 0.0
+
+
+def test_a_single_citation_earns_partial_credit():
+    retrieved = ["doc.md#chunk-0", "doc.md#chunk-1", "doc.md#chunk-2"]
+    _, components = compute_confidence([0.9] * 3, retrieved[:1], retrieved, floor=FLOOR, ceil=CEIL)
+    assert components["citation_coverage"] == 0.5

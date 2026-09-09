@@ -1,7 +1,16 @@
 """Prompt assembly: the model must receive citable ids and safely escaped text."""
 
+
+import pytest
 from rag.models import Chunk, Hit
-from rag.prompt import INSUFFICIENT_SENTINEL, SYSTEM_PROMPT, build_user_message
+from rag.prompt import (
+    INSUFFICIENT_SENTINEL,
+    SIMPLE_PROMPT,
+    STANDARD_PROMPT,
+    SYSTEM_PROMPTS,
+    build_user_message,
+    system_prompt,
+)
 
 
 def hit(chunk_id="enterprise-sla.md#chunk-4", text="Credits are applied to future invoices.",
@@ -68,6 +77,47 @@ def test_empty_retrieval_still_produces_a_wellformed_message():
 
 
 def test_system_prompt_states_the_grounding_contract():
-    assert INSUFFICIENT_SENTINEL in SYSTEM_PROMPT
-    assert "Never use outside knowledge" in SYSTEM_PROMPT
-    assert "conflicting" in SYSTEM_PROMPT
+    assert INSUFFICIENT_SENTINEL in STANDARD_PROMPT
+    assert "Never use outside knowledge" in STANDARD_PROMPT
+    assert "conflicting" in STANDARD_PROMPT
+
+
+# ------------------------------------------------------------------------ answer styles
+
+
+@pytest.mark.parametrize("style", sorted(SYSTEM_PROMPTS))
+def test_every_style_carries_the_same_grounding_rules(style):
+    """The register is allowed to change. The evidence bar is not.
+
+    An "explain like I'm 10" answer that quietly dropped its citations would still look
+    friendly while breaking `verify_citations` and driving `citation_coverage` to zero --
+    a confidence signal that degrades silently is worse than none.
+    """
+    prompt = system_prompt(style)
+    assert INSUFFICIENT_SENTINEL in prompt
+    assert "Never use outside knowledge" in prompt
+    assert "Cite the chunk_id" in prompt
+    assert "conflicting" in prompt
+
+
+def test_the_simple_style_actually_asks_for_simpler_language():
+    assert "ten-year-old" in SIMPLE_PROMPT
+    assert "Everyday words" in SIMPLE_PROMPT
+    # And still insists on the citations, which is the part most likely to be dropped.
+    assert "Keep the citations" in SIMPLE_PROMPT
+
+
+def test_simple_forbids_inventing_an_analogy():
+    """A made-up example is a hallucination wearing a friendly hat."""
+    assert "Never" in SIMPLE_PROMPT and "invent an example" in SIMPLE_PROMPT
+
+
+def test_the_two_styles_are_actually_different():
+    assert system_prompt("simple") != system_prompt("standard")
+
+
+def test_an_unknown_style_falls_back_rather_than_failing():
+    """Defence in depth: the handler rejects unknown styles, but a typo reaching here
+    should degrade to the stricter prompt, never to no prompt."""
+    assert system_prompt("nonsense") == STANDARD_PROMPT
+    assert system_prompt("") == STANDARD_PROMPT
