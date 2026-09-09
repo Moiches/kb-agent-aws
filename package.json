@@ -1,0 +1,23 @@
+{
+  "name": "kb-agent-aws",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AWS-native Knowledge Base Agent (RAG): CDK infrastructure, authenticated API, local Streamlit client",
+  "scripts": {
+    "_comment": "Entry points from the repository root. The CDK app lives in infra/, and running cdk from anywhere else fails with '--app is required' -- these wrappers remove that trap.",
+    "install:infra": "npm --prefix infra install",
+    "install:client": "pip install -r client/requirements.txt",
+    "build:lambda": "python scripts/build_lambda_deps.py",
+    "synth": "npm --prefix infra run synth --",
+    "diff": "npm --prefix infra run diff --",
+    "deploy": "npm run build:lambda && npm --prefix infra run deploy -- --require-approval never",
+    "destroy": "npm --prefix infra run destroy -- --force",
+    "seed": "python scripts/seed.py",
+    "configure": "python scripts/configure_client.py",
+    "smoke": "python scripts/smoke_test.py",
+    "client": "streamlit run client/streamlit_app.py --server.maxUploadSize 20 --server.maxMessageSize 25",
+    "test": "npm run test:python && npm run test:infra",
+    "test:python": "python -m pytest tests/ -q",
+    "test:infra": "npm --prefix infra test"
+  }
+}
