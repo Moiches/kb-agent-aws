@@ -10,31 +10,43 @@ That split is the central change from the reference prototype, where a single St
 process did the embedding, the vector search, the generation and the UI, and needed the
 model provider's API key on the laptop to do it.
 
+The layout is two panels: the corpus on the left, the conversation on the right. It is not
+decoration. The recurring failure in this project was a document that was visibly present
+and silently unsearchable, and every version of that bug was invisible from a chat window.
+Putting the corpus permanently beside the answers means the question "why did it not use my
+document?" has its answer on the same screen.
+
     pip install -r client/requirements.txt
     python scripts/configure_client.py          # writes .streamlit/secrets.toml
-    streamlit run client/streamlit_app.py
+    npm run client
 """
 
 from __future__ import annotations
 
-import json
 import os
 import uuid
 from urllib.parse import quote
 
 import requests
 import streamlit as st
+import theme
+from theme import esc, human_size, note, pill, relative_time, section
 
-REQUEST_TIMEOUT = 45  # the API itself caps at 29 s; this only has to be larger
-UPLOAD_TIMEOUT = 300  # a large PDF over a domestic uplink, not an API call
+REQUEST_TIMEOUT = 45   # the API itself caps at 29 s; this only has to be larger
+UPLOAD_TIMEOUT = 300   # a large PDF over a domestic uplink, not an API call
 
-# Grounding label -> (badge colour, plain-language meaning). The number alone tells a user
+# Only a fallback, if the API's response somehow omits the real figure. The authoritative
+# limit is the `content-length-range` condition S3 enforces on the presigned POST.
+MAX_UPLOAD_HINT = 20 * 1024 * 1024
+
+# Grounding label -> (pill tone, plain-language meaning). The number alone tells a user
 # nothing; "verify against the sources" tells them what to do.
-GROUNDING_STYLE = {
-    "high": ("🟢", "Well grounded in the retrieved sources."),
-    "medium": ("🟡", "Grounded, but worth checking the sources below."),
-    "low": ("🔴", "Weakly grounded — verify against the sources before relying on this."),
-    "insufficient_context": ("⚪", "Not answerable from the knowledge base."),
+GROUNDING = {
+    "high": ("ok", "Well grounded", "Every claim is supported by the passages below."),
+    "medium": ("info", "Grounded", "Supported, but worth checking the sources."),
+    "low": ("warn", "Weakly grounded", "Verify against the sources before relying on this."),
+    "insufficient_context": ("warn", "Insufficient context",
+                             "Not answerable from the knowledge base."),
 }
 
 # Every failure the API can return, mapped to something a human can act on. A client that
@@ -53,25 +65,21 @@ ERROR_HELP = {
     "internal_error": "The service hit an unexpected error. The request id below is what to search for in the logs.",
 }
 
+FILE_KIND = {".pdf": "PDF", ".md": "MD", ".markdown": "MD", ".txt": "TXT"}
 
-# --------------------------------------------------------------------------- config
+
+# --------------------------------------------------------------------------- transport
 
 
 def read_config() -> tuple[str, str]:
-    """Streamlit secrets, then environment, then the sidebar.
-
-    The sidebar fallback exists so a live demo can be recovered without editing a file.
-    """
+    """Streamlit secrets, then environment, then the on-screen fallback."""
     base_url, token = "", ""
     try:
         base_url = st.secrets.get("API_BASE_URL", "")
         token = st.secrets.get("API_TOKEN", "")
     except Exception:  # noqa: BLE001 -- no secrets.toml at all is a normal first run
         pass
-    return (
-        os.environ.get("API_BASE_URL") or base_url,
-        os.environ.get("API_TOKEN") or token,
-    )
+    return os.environ.get("API_BASE_URL") or base_url, os.environ.get("API_TOKEN") or token
 
 
 def call_api(base_url: str, token: str, path: str, payload: dict | None = None,
@@ -80,368 +88,273 @@ def call_api(base_url: str, token: str, path: str, payload: dict | None = None,
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     verb = method or ("POST" if payload is not None else "GET")
     try:
-        response = requests.request(
-            verb, url, headers=headers,
-            json=payload if payload is not None else None,
-            timeout=REQUEST_TIMEOUT,
-        )
+        response = requests.request(verb, url, headers=headers,
+                                    json=payload if payload is not None else None,
+                                    timeout=REQUEST_TIMEOUT)
     except requests.Timeout:
         return 0, {"error": "client_timeout", "message": f"No response within {REQUEST_TIMEOUT}s."}
     except requests.RequestException as exc:
         return 0, {"error": "client_network", "message": str(exc)}
-
     try:
         return response.status_code, response.json()
     except ValueError:
         return response.status_code, {"error": "client_bad_response", "message": response.text[:400]}
 
 
-# --------------------------------------------------------------------------- rendering
+# ------------------------------------------------------------------- document rendering
 
 
-def render_answer(result: dict) -> None:
-    st.markdown(result.get("answer", ""))
+def document_status(document: dict) -> tuple[str, str]:
+    """The status column, mapped from the two facts the API reports about a document.
 
-    grounding = result.get("grounding", "low")
-    icon, meaning = GROUNDING_STYLE.get(grounding, ("⚪", ""))
-    metadata = result.get("metadata", {})
+    `Unsupported` is a status rather than a filter. The ingest will skip such a file, and
+    hiding it would reproduce the failure this panel exists to prevent: a document sitting
+    in the bucket that no answer will ever use, with nothing on screen to say so.
+    """
+    if not document.get("supported", True):
+        return "Unsupported", "danger"
+    if not document.get("indexed"):
+        return "Indexing", "info"
+    return "Active", "ok"
 
-    left, middle, right = st.columns([2, 1, 1])
-    left.markdown(f"{icon} **{grounding.replace('_', ' ').title()}** — {meaning}")
-    middle.metric("Confidence", f"{result.get('confidence', 0):.2f}")
-    right.metric("Latency", f"{metadata.get('latency_ms', 0) / 1000:.1f} s")
 
-    render_sources(result.get("sources", []), abstained=grounding == "insufficient_context")
-    render_debug(result)
+def render_recent(documents: list[dict]) -> None:
+    """The four most recently changed documents, as cards."""
+    recent = sorted(documents, key=lambda d: d.get("last_modified", ""), reverse=True)[:4]
+    if not recent:
+        return
+
+    section("Recent Documents")
+    cards = []
+    for document in recent:
+        extension = "." + document["document_id"].rsplit(".", 1)[-1].lower() \
+            if "." in document["document_id"] else ""
+        cards.append(f"""
+          <div class="kb-card">
+            <div class="kb-card-preview">
+              <div class="kb-card-badge">{esc(FILE_KIND.get(extension, "FILE"))}</div>
+              <div class="kb-card-sheet">
+                <div class="kb-card-line w1"></div><div class="kb-card-line w2"></div>
+                <div class="kb-card-line w3"></div><div class="kb-card-line w4"></div>
+                <div class="kb-card-line w2"></div><div class="kb-card-line w3"></div>
+              </div>
+            </div>
+            <div class="kb-card-body">
+              <div class="kb-card-name">{esc(document["document_id"])}</div>
+              <div class="kb-card-meta">Last update: {esc(relative_time(document.get("last_modified", "")))}</div>
+            </div>
+          </div>""")
+    st.markdown(f'<div class="kb-cards">{"".join(cards)}</div>', unsafe_allow_html=True)
+
+
+def render_list(base_url: str, token: str, documents: list[dict]) -> None:
+    """The corpus, one row per document, with a real button on each.
+
+    A list rather than the wide table the reference uses, because this lives in a 400px
+    sidebar: six columns there would be six columns of truncation. The same facts survive
+    the narrower form -- name, type, size, passages, age, status -- stacked instead of
+    ranged across.
+
+    Streamlit allows one level of column nesting, which each row spends. That is why the
+    delete confirmation is a popover and not a second row of columns: the second level
+    would not render at all.
+    """
+    section(f"All documents \u00b7 {len(documents)}")
+    if not documents:
+        st.markdown('<div class="kb-empty">No documents yet. Add one to get started.</div>',
+                    unsafe_allow_html=True)
+        return
+
+    for document in sorted(documents, key=lambda d: d["document_id"].lower()):
+        document_id = document["document_id"]
+        extension = "." + document_id.rsplit(".", 1)[-1].lower() if "." in document_id else ""
+        label, tone = document_status(document)
+        passages = document.get("chunks", 0)
+
+        body, action = st.columns([6, 1], vertical_alignment="center")
+        body.markdown(
+            f'<div class="kb-row-name">{esc(document_id)}</div>'
+            f'<div class="kb-row-meta">{esc(FILE_KIND.get(extension, "FILE"))} \u00b7 '
+            f'{esc(human_size(document["size_bytes"]))} \u00b7 '
+            f'{passages if passages else "no"} passages \u00b7 '
+            f'{esc(relative_time(document.get("last_modified", "")))}</div>'
+            f'<div style="margin-top:.3rem">{pill(label, tone)}</div>',
+            unsafe_allow_html=True)
+
+        with action, st.popover("\U0001F5D1", help=f"Delete {document_id}"):
+            st.markdown(f"**Delete {esc(document_id)}?**")
+            st.caption("The index rebuilds automatically; the document stays searchable for "
+                       "about a minute afterwards.")
+            if st.button("Delete permanently", key=f"del-{document_id}", type="primary",
+                         use_container_width=True):
+                status_code, response = call_api(
+                    base_url, token, f"/documents/{quote(document_id, safe='')}", method="DELETE")
+                st.session_state.flash = ("delete", status_code, response)
+                st.rerun()
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+
+def render_upload(base_url: str, token: str) -> None:
+    """Upload straight to S3, with a URL the API signs.
+
+    The bytes never pass through the API, and that is structural rather than an
+    optimisation: API Gateway caps a request body at 10 MB, which one real PDF exceeds.
+    Nothing here triggers the ingest afterwards -- S3 emits an event on the new object and
+    the index rebuilds on its own.
+    """
+    chosen = st.file_uploader("Upload a document", type=["pdf", "md", "markdown", "txt"],
+                              label_visibility="collapsed")
+    st.caption("PDF, Markdown or plain text. Other formats are refused rather than stored: a "
+               "document that can never be indexed is worse than one never uploaded.")
+    if chosen is None:
+        return
+
+    st.markdown(f"**{esc(chosen.name)}** · {human_size(chosen.size)}")
+    if not st.button("Upload", type="primary", use_container_width=True):
+        return
+
+    status, grant = call_api(base_url, token, "/documents", payload={"filename": chosen.name})
+    if status != 200:
+        st.session_state.flash = ("upload", status, grant)
+        st.rerun()
+        return
+
+    if chosen.size > grant.get("max_bytes", MAX_UPLOAD_HINT):
+        # S3 would reject this too -- the size is a signed condition, not a client-side
+        # courtesy. Catching it here only turns a 400 from S3 into a sentence.
+        st.session_state.flash = ("upload", 413, {
+            "message": f"Too large: {human_size(chosen.size)}, "
+                       f"limit is {human_size(grant['max_bytes'])}."})
+        st.rerun()
+        return
+
+    upload = grant["upload"]
+    try:
+        response = requests.post(
+            upload["url"], data=upload["fields"],
+            files={"file": (chosen.name, chosen.getvalue(),
+                            upload["fields"].get("Content-Type", "application/octet-stream"))},
+            timeout=UPLOAD_TIMEOUT)
+        ok = response.status_code in (200, 201, 204)
+        body = {"message": f"**{chosen.name}** uploaded. Indexing starts automatically and takes "
+                           "about a minute." if ok else response.text[:300]}
+        st.session_state.flash = ("upload", 200 if ok else response.status_code, body)
+    except requests.RequestException as exc:
+        st.session_state.flash = ("upload", 0, {"message": str(exc)})
+    st.rerun()
+
+
+def draw_stats(slot, health: dict) -> None:
+    """The four headline numbers.
+
+    Written into a placeholder because this panel renders at the top of the left column,
+    before the question at the bottom of the script has been answered. Without the slot the
+    question count is permanently one behind -- ask the first question, watch it say zero.
+    Rewriting the slot afterwards costs nothing; `st.rerun()` would repeat the /health and
+    /documents calls on every question.
+
+    `kb_loaded` alone only says the artifact parsed. An index that loaded perfectly and holds
+    nothing cannot answer a single question, and a green badge there sends someone debugging
+    the model when the corpus is the problem.
+    """
+    loaded = health.get("kb_loaded") and health.get("chunk_count", 0) > 0
+    slot.markdown(
+        f'<div class="kb-panel" style="margin-top:.9rem;padding:.8rem 1.1rem">'
+        f'<div class="kb-stat-row">'
+        f'<div><div class="kb-stat-label">Status</div><div style="margin-top:.35rem">'
+        f'{pill("Active", "ok") if loaded else pill("Empty", "warn")}</div></div>'
+        f'<div><div class="kb-stat-label">Documents</div>'
+        f'<div class="kb-stat-value">{health.get("document_count", 0)}</div></div>'
+        f'<div><div class="kb-stat-label">Passages</div>'
+        f'<div class="kb-stat-value">{health.get("chunk_count", 0)}</div></div>'
+        f'<div><div class="kb-stat-label">Questions</div>'
+        f'<div class="kb-stat-value">{len(st.session_state.history)}</div></div>'
+        f'</div></div>', unsafe_allow_html=True)
+
+
+def render_flash() -> None:
+    """One place for the outcome of the last write, surviving the rerun that follows it."""
+    flash = st.session_state.pop("flash", None)
+    if not flash:
+        return
+    kind, status, body = flash
+    if kind == "delete" and status == 202:
+        note(f"Deleted <b>{esc(body.get('deleted'))}</b>. " + esc(body.get("message", "")), "info")
+    elif kind == "upload" and status == 200:
+        note(body.get("message", "Uploaded."), "info")
+    else:
+        note(f"{esc(body.get('message', 'Something went wrong.'))}", "danger")
+
+
+# ---------------------------------------------------------------------- answer rendering
 
 
 def as_plain_text(text: str) -> str:
     """Render a document excerpt verbatim.
 
     Excerpts are raw Markdown lifted out of the source documents, so Streamlit happily
-    renders `## Service credits` as a heading and a pipe table as a table. That misrepresents
-    what the retriever actually matched on, and it wrecks the layout. Escaping the handful of
-    characters Markdown reacts to keeps the excerpt looking like what it is: source text.
+    renders `## Service credits` as a heading and a pipe table as a table. That
+    misrepresents what the retriever matched on, and it wrecks the layout.
     """
     for char in ("\\", "`", "*", "_", "#", "|", "[", "]", "<", ">"):
         text = text.replace(char, "\\" + char)
     return text
 
 
+def render_answer(result: dict) -> None:
+    st.markdown(result.get("answer", ""))
+
+    grounding = result.get("grounding", "low")
+    tone, label, meaning = GROUNDING.get(grounding, ("warn", grounding, ""))
+    metadata = result.get("metadata", {})
+    st.markdown(
+        f'{pill(label, tone)}&nbsp;<span class="kb-src">{esc(meaning)}</span><br>'
+        f'<span class="kb-src">Confidence <b>{result.get("confidence", 0):.2f}</b> · '
+        f'{metadata.get("latency_ms", 0) / 1000:.1f} s · '
+        f'{esc(metadata.get("style", "standard"))}</span>',
+        unsafe_allow_html=True)
+
+    render_sources(result.get("sources", []), abstained=grounding == "insufficient_context")
+    render_debug(result)
+
+
 def render_sources(sources: list[dict], abstained: bool = False) -> None:
     if not sources:
-        st.caption(
-            "No passage scored above the relevance floor — nothing in the knowledge base "
-            "came close enough to be worth reading."
-            if abstained
-            else "No sources — the knowledge base did not contain a relevant passage."
-        )
+        st.caption("No passage scored above the relevance floor."
+                   if abstained else "No sources.")
         return
 
     if abstained:
-        # These were retrieved and then rejected. Labelling them as evidence would be wrong,
-        # but hiding them is worse: they usually show the right document was found and the
-        # wrong section of it, which is a different problem from the document being absent.
-        header = f"Retrieved but judged insufficient — {len(sources)} passages"
+        # Retrieved and then rejected. Labelling them as evidence would be wrong, but hiding
+        # them is worse: they usually show the right document was found and the wrong section
+        # of it, which is a different problem from the document being absent.
+        header = f"Retrieved but judged insufficient — {len(sources)}"
     else:
         cited = sum(1 for s in sources if s.get("cited"))
-        header = f"Sources — {cited} of {len(sources)} retrieved passages were cited"
+        header = f"Sources — {cited} of {len(sources)} cited"
 
-    with st.expander(header, expanded=True):
+    with st.expander(header):
         if abstained:
-            st.caption(
-                "The model read these and reported they do not answer the question. "
-                "They are shown so you can judge that for yourself — not as support for "
-                "the answer above."
-            )
+            st.caption("The model read these and reported they do not answer the question. "
+                       "Shown so you can judge that yourself — not as support for the answer.")
         for source in sources:
             where = source.get("section") or (f"page {source['page']}" if source.get("page") else "")
             title = source.get("document_title") or source.get("document_id")
             mark = ("rejected" if abstained
-                    else "✓ cited" if source.get("cited")
-                    else "retrieved, not cited")
-
+                    else "cited" if source.get("cited") else "not cited")
             st.markdown(
-                f"**{title}**{f' › {where}' if where else ''}  \n"
-                f"`{source['chunk_id']}` · score `{source['score']:.3f}` · _{mark}_"
-            )
-            st.caption(as_plain_text(source.get("excerpt", "")))
-            st.divider()
-
-
-# Only a fallback for the size check below, used if the API's response somehow omits the
-# real figure. The authoritative limit is the `content-length-range` S3 enforces.
-MAX_UPLOAD_HINT = 20 * 1024 * 1024
-
-FILE_ICONS = {".pdf": "📕", ".md": "📄", ".markdown": "📄", ".txt": "📝"}
-
-
-def human_size(num_bytes: int) -> str:
-    for unit, cutoff in (("GB", 1024 ** 3), ("MB", 1024 ** 2), ("KB", 1024)):
-        if num_bytes >= cutoff:
-            return f"{num_bytes / cutoff:.2f} {unit}"
-    return f"{num_bytes} B"
-
-
-def render_status(base_url: str, token: str) -> tuple[dict, "st.delta_generator.DeltaGenerator | None"]:
-    """Health as a banner and three numbers, and the numbers are chosen deliberately.
-
-    `Documents` and `Passages` are both here because they answer different questions and
-    people conflate them. Documents is what you uploaded; passages is what retrieval can
-    actually reach, and a document contributing few passages is the shape of a file that
-    parsed badly. One number without the other hides that.
-
-    Everything comes from `/health`, so the banner reports what the query Lambda has
-    loaded -- not what is sitting in the bucket. Those differ for about a minute after any
-    change, and this panel is the wrong place to blur them.
-    """
-    st.subheader("Status")
-    if not base_url or not token:
-        st.warning("Not configured", icon="⚠️")
-        return {}, None
-
-    status, health = call_api(base_url, token, "/health")
-    if status != 200:
-        st.error("API unreachable", icon="🚫")
-        st.caption(health.get("message", f"HTTP {status}"))
-        return {}, None
-
-    # `kb_loaded` only says the artifact parsed. An index that loaded perfectly and holds
-    # nothing is not an active knowledge base -- it cannot answer a single question -- and
-    # calling it active is the kind of green badge that sends someone debugging the model
-    # when the real problem is an empty corpus.
-    if health.get("kb_loaded") and health.get("chunk_count", 0) > 0:
-        st.success("Knowledge Base Active", icon="✅")
-    elif health.get("kb_loaded"):
-        st.warning("Knowledge Base Empty", icon="⚠️")
-        st.caption("The index loaded and contains no passages. Upload a document, or restore "
-                   "the samples with `aws s3 cp sample-docs/ s3://<bucket>/raw/ --recursive`.")
-    else:
-        # Deployed but never seeded. A real state, and the one a reviewer meets between
-        # `cdk deploy` and the first ingest -- reporting it as an error would send someone
-        # debugging a system that is working exactly as designed.
-        st.warning("Knowledge Base Not Seeded", icon="⚠️")
-        st.caption(health.get("detail", ""))
-
-    documents_column, passages_column = st.columns(2)
-    documents_column.metric("Documents", health.get("document_count", 0))
-    passages_column.metric("Passages", health.get("chunk_count", 0))
-    # "Questions" rather than the messages a chat UI would count: one entry here is a
-    # question and its answer, and calling that two messages would inflate a number people
-    # read as work done.
-    #
-    # Held in a placeholder because the sidebar renders before the question at the bottom of
-    # the script is answered. Without it the count is always one behind -- ask the first
-    # question, watch it say zero. Rewriting the slot afterwards costs nothing; a full
-    # `st.rerun()` would repeat the /health and /documents calls on every question.
-    questions_slot = st.empty()
-    questions_slot.metric("Questions", len(st.session_state.history))
-
-    version = health.get("kb_version") or ""
-    if version:
-        st.caption(f"Index `{version[:19]}`")
-    st.caption(f"Provider `{health.get('provider')}` · `{health.get('model')}`")
-    return health, questions_slot
-
-
-def render_upload(base_url: str, token: str) -> None:
-    """Upload a document straight to S3, using a URL the API signs.
-
-    The bytes never pass through the API. That is not an optimisation: API Gateway caps a
-    request body at 10 MB, which a single real PDF exceeds, so any design that proxies the
-    file has a ceiling built into it. The API grants permission and S3 takes the upload.
-
-    Nothing here has to trigger the ingest afterwards. S3 emits an event on the new object
-    and the index rebuilds on its own -- which is also what makes a file dropped in through
-    the console behave the same way as one uploaded here.
-    """
-    st.subheader("Browse Files")
-    if not base_url or not token:
-        st.caption("Not connected.")
-        return
-
-    chosen = st.file_uploader(
-        "Upload Documents",
-        type=["pdf", "md", "markdown", "txt"],
-        help="The ingest reads PDF, Markdown and plain text. Other formats are refused "
-             "rather than stored, because a document that can never be indexed is worse "
-             "than one that was never uploaded.",
-    )
-    # No size caption here on purpose. Streamlit prints its own from `server.maxUploadSize`,
-    # which `npm run client` sets to match; a second line would only be a chance for the two
-    # to disagree, and the authoritative limit is neither of them -- it is the signed
-    # condition S3 enforces.
-
-    if chosen is None:
-        return
-
-    signature = (chosen.name, chosen.size)
-    if st.session_state.get("uploaded_signature") == signature:
-        st.success(f"**{chosen.name}** uploaded.")
-        st.caption(
-            "Reindexing starts automatically and takes about a minute to affect answers. "
-            "Clear the file above to upload another."
-        )
-        return
-
-    st.caption(f"Ready: **{chosen.name}** · {human_size(chosen.size)}")
-    if not st.button("Upload", type="primary", use_container_width=True):
-        return
-
-    status, grant = call_api(base_url, token, "/documents", payload={"filename": chosen.name})
-    if status != 200:
-        st.error(f"Upload refused (HTTP {status})")
-        st.caption(grant.get("message", ""))
-        return
-
-    if chosen.size > grant.get("max_bytes", MAX_UPLOAD_HINT):
-        # S3 would reject this too -- the size is a signed condition, not a client-side
-        # courtesy. Catching it here just turns a 400 from S3 into a sentence.
-        st.error(f"Too large: {human_size(chosen.size)}, limit is {human_size(grant['max_bytes'])}.")
-        return
-
-    upload = grant["upload"]
-    try:
-        response = requests.post(
-            upload["url"],
-            data=upload["fields"],
-            files={"file": (chosen.name, chosen.getvalue(),
-                            upload["fields"].get("Content-Type", "application/octet-stream"))},
-            timeout=UPLOAD_TIMEOUT,
-        )
-    except requests.RequestException as exc:
-        st.error("Upload failed.")
-        st.caption(str(exc))
-        return
-
-    if response.status_code not in (200, 201, 204):
-        st.error(f"S3 rejected the upload (HTTP {response.status_code})")
-        st.caption(response.text[:300])
-        return
-
-    st.session_state.uploaded_signature = signature
-    st.rerun()
-
-
-def render_knowledge_base(base_url: str, token: str, serving_version: str = "") -> None:
-    """The corpus, with what is searchable made visible.
-
-    The prototype this replaces listed filenames. This lists filenames *and whether the
-    system can actually answer from them*, because those are different facts: a file sits in
-    S3 the moment it is uploaded, and stays unsearchable until the ingest runs. Showing only
-    the first would reproduce the exact confusion the `GET /documents` endpoint was built to
-    end -- a document visibly present and silently absent from every answer.
-
-    `serving_version` is `/health`'s `kb_version`: the index the query Lambda currently holds
-    in memory. It is compared against the artifact's version because they are not the same
-    thing and the gap is not small. Measured on a delete: the artifact was rebuilt in 6
-    seconds and the query path went on answering from the old one for 54 more, because a warm
-    execution environment re-checks the artifact at most once a minute. `in_sync` alone would
-    have said "done" for most of the window in which the answer was still wrong.
-    """
-    st.subheader("Knowledge Base Files")
-    if not base_url or not token:
-        st.caption("Not connected.")
-        return
-
-    status, body = call_api(base_url, token, "/documents")
-    if status != 200:
-        st.error(f"Could not list documents (HTTP {status})")
-        st.caption(body.get("message", ""))
-        return
-
-    documents, index = body.get("documents", []), body.get("index", {})
-    if not documents:
-        st.caption("No documents in the knowledge base.")
-        return
-
-    if not index.get("in_sync", True):
-        pending, orphaned = index.get("pending_ingest", []), index.get("orphaned_in_index", [])
-        st.warning("Stored and searchable have drifted apart.")
-        if pending:
-            st.caption(f"Uploaded but not indexed: {', '.join(pending)}. Run `npm run seed`.")
-        if orphaned:
-            # The dangerous direction: answers can still cite a document that is gone.
-            st.caption(f"Deleted but still searchable: {', '.join(orphaned)}. Reindexing may be running.")
-    elif serving_version and index.get("kb_version") and serving_version != index["kb_version"]:
-        # The index file is correct and the answers are not yet. This is the state the
-        # `in_sync` flag cannot see, and it lasts up to a minute after every reindex.
-        st.info("Index rebuilt. The query path is still serving the previous one.")
-        st.caption(
-            f"Answering from `{serving_version[:19]}`, latest is `{index['kb_version'][:19]}`. "
-            "A warm Lambda re-checks the index at most once a minute, so this clears within 60s."
-        )
-
-    for document in documents:
-        document_id = document["document_id"]
-        extension = "." + document_id.rsplit(".", 1)[-1].lower() if "." in document_id else ""
-        icon = FILE_ICONS.get(extension, "📄")
-
-        name_column, action_column = st.columns([5, 1], vertical_alignment="center")
-        with name_column:
-            st.markdown(f"{icon} **{document_id}**")
-            detail = human_size(document["size_bytes"])
-            if not document.get("supported", True):
-                detail += " · unsupported type, not indexed"
-            elif document.get("indexed"):
-                detail += f" · {document['chunks']} passages"
-            else:
-                detail += " · not indexed yet"
-            st.caption(detail)
-
-        with action_column:
-            if st.session_state.get("pending_delete") != document_id:
-                if st.button("🗑", key=f"delete-{document_id}", help="Delete this document"):
-                    # Two steps on purpose. This deletes the object from S3 and rebuilds the
-                    # index; a stray click in a sidebar should not be able to do that.
-                    st.session_state.pending_delete = document_id
-                    st.rerun()
-
-        if st.session_state.get("pending_delete") == document_id:
-            st.warning(f"Delete **{document_id}** and reindex?")
-            confirm_column, cancel_column = st.columns(2)
-            if confirm_column.button("Delete", key=f"confirm-{document_id}",
-                                     type="primary", use_container_width=True):
-                delete_status, delete_body = call_api(
-                    base_url, token, f"/documents/{quote(document_id, safe='')}", method="DELETE"
-                )
-                st.session_state.pending_delete = None
-                st.session_state.delete_flash = (delete_status, delete_body)
-                st.rerun()
-            if cancel_column.button("Cancel", key=f"cancel-{document_id}", use_container_width=True):
-                st.session_state.pending_delete = None
-                st.rerun()
-
-        st.divider()
-
-    flash = st.session_state.pop("delete_flash", None)
-    if flash:
-        flash_status, flash_body = flash
-        if flash_status == 202:
-            st.success(f"Deleted **{flash_body.get('deleted')}**.")
-            # Saying "done" here would be a lie for the next half minute.
-            st.caption(
-                "Reindexing runs in the background; until it finishes the document is still "
-                "searchable. Reload to watch it disappear."
-                if flash_body.get("reindex") == "started" else
-                "Reindexing could not be started -- run `npm run seed` to rebuild the index."
-            )
-        else:
-            st.error(f"Delete failed (HTTP {flash_status})")
-            st.caption(flash_body.get("message", ""))
-
-    st.caption(
-        "Documents are added by uploading to the bucket's `raw/` prefix and running the "
-        "ingest. There is no upload endpoint: API Gateway caps a body at 10 MB, so uploads "
-        "belong on a presigned S3 URL."
-    )
+                f'<div class="kb-src"><b>{esc(title)}</b>'
+                f'{" › " + esc(where) if where else ""} · {source["score"]:.3f} · {esc(mark)}</div>',
+                unsafe_allow_html=True)
+            st.markdown(f'<div class="kb-quote">{esc(source.get("excerpt", ""))}</div>',
+                        unsafe_allow_html=True)
 
 
 def render_debug(result: dict) -> None:
     """Everything needed to chase a request into CloudWatch, in the UI.
 
     This is what makes the system debuggable from the client: a user reporting a bad answer
-    can hand over one request id, and the Logs Insights query below reconstructs the run.
+    can hand over one request id, and the query below reconstructs the run.
     """
     metadata = result.get("metadata", {})
     request_id = metadata.get("request_id", "")
@@ -459,41 +372,32 @@ def render_debug(result: dict) -> None:
             f"· est. `${metadata.get('estimated_cost_usd', 0):.6f}`  \n"
             f"**Confidence** = 0.50·strength `{components.get('retrieval_strength')}` "
             f"+ 0.25·consensus `{components.get('consensus')}` "
-            f"+ 0.25·citation coverage `{components.get('citation_coverage')}`"
-        )
+            f"+ 0.25·citation coverage `{components.get('citation_coverage')}`")
         if metadata.get("dropped_citations"):
-            st.warning(
-                f"Citations the model invented and the API removed: "
-                f"`{', '.join(metadata['dropped_citations'])}`"
-            )
-
+            st.warning("Citations the model invented and the API removed: "
+                       f"`{', '.join(metadata['dropped_citations'])}`")
         st.caption("Find this request in CloudWatch Logs Insights:")
-        st.code(
-            "fields @timestamp, message, confidence, top_score, latency_ms\n"
-            f'| filter correlation_id = "{request_id}"\n'
-            "| sort @timestamp asc",
-            language="text",
-        )
-        st.caption("Raw response")
+        st.code("fields @timestamp, message, confidence, top_score, latency_ms\n"
+                f'| filter correlation_id = "{request_id}"\n| sort @timestamp asc', language="text")
         st.json(result, expanded=False)
 
 
 def render_error(status: int, body: dict) -> None:
     error = body.get("error", "unknown")
     st.error(f"**{error}** (HTTP {status}) — {body.get('message', '')}")
-
     if error in ERROR_HELP:
         st.info(ERROR_HELP[error])
     if body.get("hint"):
         st.info(body["hint"])
     if body.get("request_id"):
-        st.caption(f"Request id: `{body['request_id']}` — quote this when reporting the problem.")
+        st.caption(f"Request id: `{body['request_id']}`")
 
 
 # ------------------------------------------------------------------------------- app
 
 
-st.set_page_config(page_title="Knowledge Base Agent", page_icon="📚", layout="wide")
+st.set_page_config(page_title="Knowledge Base", page_icon="\U0001F4DA", layout="wide",
+                   initial_sidebar_state="expanded")
 
 if "history" not in st.session_state:
     st.session_state.history = []
@@ -501,90 +405,132 @@ if "session_id" not in st.session_state:
     # One id per browser session, so a conversation can be reconstructed from the query log.
     st.session_state.session_id = str(uuid.uuid4())
 
+# Read before the stylesheet is written, because it decides which palette gets written.
+# Kept in the URL rather than session state so a browser reload does not discard the choice.
+mode = st.query_params.get("theme", "System")
+if mode not in theme.MODES:
+    mode = "System"
+theme.inject(mode)
+
 base_url, token = read_config()
 
+if not base_url or not token:
+    # Only shown when there is nothing to connect with. The fallback exists so a live demo
+    # can be recovered without editing a file.
+    st.markdown('<div class="kb-title">Knowledge Base</div>'
+                '<div class="kb-subtitle">Not configured yet.</div>', unsafe_allow_html=True)
+    note("Run <code>python scripts/configure_client.py</code>, or enter the values below.", "warn")
+    base_url = st.text_input("API base URL", value=base_url)
+    token = st.text_input("API token", value=token, type="password")
+    st.stop()
+
+health_status, health = call_api(base_url, token, "/health")
+list_status, listing = call_api(base_url, token, "/documents")
+documents = listing.get("documents", []) if list_status == 200 else []
+index = listing.get("index", {}) if list_status == 200 else {}
+
+# -------------------------------------------------------------------- sidebar: the corpus
+
 with st.sidebar:
-    if not base_url or not token:
-        # Only shown when there is nothing to connect with. The fallback exists so a live
-        # demo can be recovered without editing a file.
-        st.subheader("Connection")
-        st.caption("Run `python scripts/configure_client.py`, or paste the values below.")
-        base_url = st.text_input("API base URL", value=base_url)
-        token = st.text_input("API token", value=token, type="password")
+    heading, action = st.columns([2, 1.15], vertical_alignment="center")
+    heading.markdown('<div class="kb-title">Knowledge Base</div>'
+                     '<div class="kb-subtitle">Manage your sources</div>', unsafe_allow_html=True)
+    with action, st.popover("\uFF0B Add", use_container_width=True):
+        render_upload(base_url, token)
 
-    health, questions_slot = render_status(base_url, token)
+    render_flash()
 
-    st.subheader("Settings")
-    top_k = st.slider("Passages to retrieve (top_k)", 1, 10, 5)
-    simple = st.toggle(
-        "Explain like I'm 10",
-        value=False,
-        help="Plain language for someone new to the subject. Citations and the refusal to "
-             "answer beyond the documents are unchanged -- only the wording gets simpler.",
-    )
-    st.caption(f"Session `{st.session_state.session_id[:8]}`")
+    stats_slot = st.empty()
+    if health_status != 200:
+        note(f"API unreachable \u2014 {esc(health.get('message', f'HTTP {health_status}'))}", "danger")
+    else:
+        draw_stats(stats_slot, health)
 
-    if st.button("Clear history", use_container_width=True):
+    # Drift, in two directions. The second is the dangerous one: content still being
+    # answered from after its source was removed.
+    pending, orphaned = index.get("pending_ingest", []), index.get("orphaned_in_index", [])
+    if orphaned:
+        note(f"Deleted but still searchable: <b>{esc(', '.join(orphaned))}</b>. Reindexing is "
+             "running; answers may cite it for about a minute.", "warn")
+    elif pending:
+        note(f"Uploaded, not yet indexed: <b>{esc(', '.join(pending))}</b>. Indexing starts on "
+             "its own and takes about a minute.", "info")
+    elif index.get("kb_version") and health.get("kb_version") \
+            and index["kb_version"] != health["kb_version"]:
+        # The artifact is current and the answers are not. `in_sync` cannot see this state,
+        # and it lasts up to a minute after every rebuild.
+        note("Index rebuilt. The query path is still serving the previous one \u2014 a warm "
+             "Lambda re-checks at most once a minute.", "info")
+
+    render_recent(documents)
+    render_list(base_url, token, documents)
+
+    st.markdown("<hr>", unsafe_allow_html=True)
+    chosen = st.segmented_control("Theme", theme.MODES, default=mode, key="theme_mode",
+                                  label_visibility="collapsed")
+    if chosen and chosen != mode:
+        st.query_params["theme"] = chosen
+        st.rerun()
+    st.caption("System follows your operating system and keeps following it \u2014 the switch "
+               "at dusk needs no reload.")
+
+# ------------------------------------------------------------------------ main: the chat
+
+st.markdown('<div class="kb-title">Assistant</div>'
+            '<div class="kb-subtitle">Answers grounded in the documents beside you. Every claim '
+            'carries a citation the API verifies against what was actually retrieved.</div>',
+            unsafe_allow_html=True)
+
+controls, _spacer = st.columns([2, 3])
+with controls:
+    settings, clear = st.columns(2)
+    with settings.popover("Settings", use_container_width=True):
+        top_k = st.slider("Passages to retrieve", 1, 10, 5)
+        simple = st.toggle("Explain like I'm 10", value=False,
+                           help="Plain language for someone new to the subject. Citations and "
+                                "the refusal to answer beyond the documents are unchanged.")
+        st.caption(f"Session `{st.session_state.session_id[:8]}`")
+    if clear.button("Clear", use_container_width=True):
         st.session_state.history = []
         st.rerun()
 
-    render_upload(base_url, token)
-    render_knowledge_base(base_url, token, health.get("kb_version", "") if isinstance(health, dict) else "")
-
-    st.subheader("Try these")
-    st.caption(
-        "**Answerable**\n"
-        "- How long does an Enterprise customer have to request a refund?\n"
-        "- What service credit applies if uptime drops to 99.0%?\n"
-        "- Who do I page if the on-call engineer does not respond?\n\n"
-        "**Should abstain** — nothing in the knowledge base covers these\n"
-        "- Do you sign HIPAA Business Associate Agreements?\n"
-        "- What is your policy on cryptocurrency payments?"
-    )
-
-st.title("Knowledge Base Agent")
-st.caption(
-    "Retrieval-augmented answers grounded in a small corpus of business documents. "
-    "Every claim carries a citation that the API verifies against what was actually retrieved."
-)
-
-for entry in st.session_state.history:
-    with st.chat_message("user"):
-        st.write(entry["question"])
-    with st.chat_message("assistant"):
-        if entry.get("error"):
-            render_error(entry["status"], entry["body"])
-        else:
-            render_answer(entry["body"])
+history_area = st.container(height=470, border=False)
+with history_area:
+    # In a placeholder so the first question can clear it in the same run. Left as a plain
+    # block it lingers above the answer it was meant to invite.
+    empty_slot = st.empty()
+    if not st.session_state.history:
+        empty_slot.markdown('<div class="kb-empty">Ask a question about the documents.</div>',
+                            unsafe_allow_html=True)
+    for entry in st.session_state.history:
+        with st.chat_message("user"):
+            st.write(entry["question"])
+        with st.chat_message("assistant"):
+            if entry.get("error"):
+                render_error(entry["status"], entry["body"])
+            else:
+                render_answer(entry["body"])
 
 question = st.chat_input("Ask a question about the knowledge base")
 
 if question:
-    if not base_url or not token:
-        st.error("Configure the API base URL and token in the sidebar first.")
-        st.stop()
-
-    with st.chat_message("user"):
-        st.write(question)
-
-    with st.chat_message("assistant"):
-        with st.spinner("Retrieving and generating…"):
-            status, body = call_api(
-                base_url, token, "/query",
-                {
-                    "question": question,
-                    "session_id": st.session_state.session_id,
-                    "top_k": top_k,
-                    "style": "simple" if simple else "standard",
-                },
-            )
-        if status == 200:
-            render_answer(body)
-        else:
-            render_error(status, body)
+    empty_slot.empty()
+    with history_area:
+        with st.chat_message("user"):
+            st.write(question)
+        with st.chat_message("assistant"), st.spinner("Retrieving and generating\u2026"):
+            status, body = call_api(base_url, token, "/query", {
+                "question": question,
+                "session_id": st.session_state.session_id,
+                "top_k": top_k,
+                "style": "simple" if simple else "standard",
+            })
+            if status == 200:
+                render_answer(body)
+            else:
+                render_error(status, body)
 
     st.session_state.history.append(
-        {"question": question, "status": status, "body": body, "error": status != 200}
-    )
-    if questions_slot is not None:
-        questions_slot.metric("Questions", len(st.session_state.history))
+        {"question": question, "status": status, "body": body, "error": status != 200})
+    if health_status == 200:
+        draw_stats(stats_slot, health)

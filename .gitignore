@@ -11,8 +11,11 @@ credentials
 # ------------------------------------------------------------------------------ CDK
 infra/cdk.out/
 infra/node_modules/
-infra/*.js
-infra/*.d.ts
+# Compiled output of `tsc`. The recursive form matters: `infra/*.js` only matches the top
+# level, so lib/ and bin/ leaked their build artifacts into the repository.
+infra/**/*.js
+infra/**/*.d.ts
+infra/**/*.js.map
 !infra/jest.config.js
 cdk.context.json
 

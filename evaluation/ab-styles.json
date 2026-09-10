@@ -1,0 +1,277 @@
+[
+  {
+    "id": "Q1",
+    "question": "How long does an Enterprise customer have to request a refund?",
+    "correct": "30 days from the invoice date.",
+    "standard": {
+      "answer": "Enterprise customers have **30 days from the invoice date** to request a refund [refund-and-cancellation-policy.md#chunk-1]. Requests submitted after this 30-day window are not eligible for a refund, regardless of usage level.",
+      "confidence": 0.67,
+      "grounding": "medium",
+      "sources": 5,
+      "top_score": 0.6792,
+      "output_tokens": 60,
+      "cost": 0.001532,
+      "latency": 1560.5
+    },
+    "simple": {
+      "answer": "An Enterprise customer has **30 days from the invoice date** to request a refund [refund-and-cancellation-policy.md#chunk-1]. After those 30 days are up, you cannot get a refund, no matter how much or how little you used the service. Your account manager has to approve the refund before the Finance team processes it [refund-and-cancellation-policy.md#chunk-1].",
+      "confidence": 0.67,
+      "grounding": "medium",
+      "sources": 5,
+      "top_score": 0.6792,
+      "output_tokens": 99,
+      "cost": 0.001862,
+      "latency": 1688.2
+    }
+  },
+  {
+    "id": "Q2",
+    "question": "What service credit applies if uptime drops to 99.0%?",
+    "correct": "10% of the monthly fee.",
+    "standard": {
+      "answer": "If monthly uptime drops to exactly 99.0%, **no service credit applies** [enterprise-sla.md#chunk-2]. Service credits are only issued when uptime falls below 99.0%. The credit table shows credits begin at \"below 99.0% but at or above 95.0%\" (25% of monthly fee), meaning 99.0% itself does not qualify.",
+      "confidence": 0.75,
+      "grounding": "high",
+      "sources": 5,
+      "top_score": 0.7527,
+      "output_tokens": 89,
+      "cost": 0.001486,
+      "latency": 1975.7
+    },
+    "simple": {
+      "answer": "If uptime drops to exactly 99.0%, you get **10% of your monthly fee as a service credit** [enterprise-sla.md#chunk-2]. Here's why: The credit table shows that you qualify for 10% when uptime is \"below 99.9% but at or above 99.0%.\" Since 99.0% is right at that lower boundary, it counts. Remember: a service credit is not money back. Instead, it gets subtracted from your next bill [enterprise-sla.md#chunk-2].",
+      "confidence": 0.75,
+      "grounding": "high",
+      "sources": 5,
+      "top_score": 0.7527,
+      "output_tokens": 126,
+      "cost": 0.001806,
+      "latency": 2469.0
+    }
+  },
+  {
+    "id": "Q3",
+    "question": "Where is customer data stored, and is it encrypted at rest?",
+    "correct": "US (us-east-1) or EU (eu-west-1), chosen at account creation; encrypted at rest with AES-256.",
+    "standard": {
+      "answer": "Customer data is stored in one of two AWS regions selected at account creation [security-and-data-handling.md#chunk-1]: - **US**: data in `us-east-1` with backups replicated to `us-west-2` - **EU**: data in `eu-west-1` with backups replicated to `eu-central-1` Yes, all customer data is encrypted at rest using AES-256, with encryption keys managed by the cloud provider's key management service and rotated annually [security-and-data-handling.md#chunk-0]. Database backups are encrypted with the same key hierarchy as the primary store [security-and-data-handling.md#chunk-0].",
+      "confidence": 0.86,
+      "grounding": "high",
+      "sources": 5,
+      "top_score": 0.7415,
+      "output_tokens": 162,
+      "cost": 0.001841,
+      "latency": 2345.6
+    },
+    "simple": {
+      "answer": "Yes, customer data is encrypted at rest, and it's stored in one of two regions you pick when you create your account [security-and-data-handling.md#chunk-0]. Here's where it lives: - **US region**: data stored in AWS `us-east-1`, with backups in `us-west-2` [security-and-data-handling.md#chunk-1] - **EU region**: data stored in AWS `eu-west-1`, with backups in `eu-central-1` [security-and-data-handling.md#chunk-1] The encryption uses AES-256, which is a very strong lock that scrambles your data so no one can read it without the key [security-and-data-handling.md#chunk-0]. The keys are managed by the cloud provider and changed every year [security-and-data-handling.md#chunk-0].",
+      "confidence": 0.86,
+      "grounding": "high",
+      "sources": 5,
+      "top_score": 0.7415,
+      "output_tokens": 207,
+      "cost": 0.002201,
+      "latency": 2572.8
+    }
+  },
+  {
+    "id": "Q4",
+    "question": "What is the response time for a Severity 1 incident?",
+    "correct": "15 minutes initial response, 24x7.",
+    "standard": {
+      "answer": "The target first response time for a Severity 1 incident is **15 minutes** [support-escalation-runbook.md#chunk-1], and it must be handled around the clock [support-escalation-runbook.md#chunk-1]. For enterprise customers, the target resolution time for S1 is **4 hours** [enterprise-sla.md#chunk-1].",
+      "confidence": 0.86,
+      "grounding": "high",
+      "sources": 5,
+      "top_score": 0.7258,
+      "output_tokens": 92,
+      "cost": 0.001726,
+      "latency": 1632.7
+    },
+    "simple": {
+      "answer": "The target first response for a Severity 1 incident is **15 minutes, around the clock** [support-escalation-runbook.md#chunk-1]. This means someone from our team will get back to you within 15 minutes, no matter what time of day or night it happens. Severity 1 is for the most serious problems — when your system is completely down or you're losing data [support-escalation-runbook.md#chunk-1]. Because it's so urgent, we have an on-call person always ready, and if they don't answer, the page automatically goes to a backup person [support-escalation-runbook.md#chunk-3].",
+      "confidence": 0.86,
+      "grounding": "high",
+      "sources": 5,
+      "top_score": 0.7258,
+      "output_tokens": 153,
+      "cost": 0.002166,
+      "latency": 2913.4
+    }
+  },
+  {
+    "id": "Q5",
+    "question": "How do I set up SAML single sign-on?",
+    "correct": "Four steps: copy ACS URL and Entity ID, create the IdP app, map email and displayName, paste metadata back and verify.",
+    "standard": {
+      "answer": "SAML SSO is available on Business and Enterprise plans and requires four steps [customer-onboarding-faq.md#chunk-1]: 1. In Northwind, open **Settings → Authentication → SAML** and copy the Assertion Consumer Service URL and Entity ID. 2. In your identity provider, create a new SAML application using those values. Supported providers include Okta, Microsoft Entra ID, Google Workspace, and any provider supporting SAML 2.0. 3. Map the required attributes: `email` and `displayName` are required; the optional `groups` attribute enables automatic role assignment. 4. Paste the identity provider metadata XML back into Northwind and click **Verify** to run a test assertion. Once verified, an administrator can enforce SSO organization-wide, which disables password login for all members except break-glass accounts. Northwind strongly recommends keeping at least one break-glass administrator with password login enabled [customer-onboarding-faq.md#chunk-2].",
+      "confidence": 0.86,
+      "grounding": "high",
+      "sources": 5,
+      "top_score": 0.7748,
+      "output_tokens": 233,
+      "cost": 0.002351,
+      "latency": 3450.3
+    },
+    "simple": {
+      "answer": "SAML single sign-on (SSO) is a way to let people log into Northwind using their company's existing login system instead of creating a new password [customer-onboarding-faq.md#chunk-1]. Here are the four steps to set it up [customer-onboarding-faq.md#chunk-1]: 1. **In Northwind**, go to Settings → Authentication → SAML and copy two pieces of information: the Assertion Consumer Service URL and the Entity ID. 2. **In your company's login system** (like Okta, Microsoft Entra ID, or Google Workspace), create a new SAML application using those two values. 3. **Map the required information**. You must provide `email` and `displayName`. You can also add a `groups` attribute if you want Northwind to automatically assign roles. 4. **Paste the metadata back into Northwind** and click Verify. This runs a test to make sure everything works. One important note: SAML SSO is only available if you have a Business or Enterprise plan [customer-onboarding-faq.md#chunk-1]. After it's set up, an administrator can turn on SSO for everyone, which turns off regular password login—but you should keep at least one backup admin account with a password just in case [customer-onboarding-faq.md#chunk-2].",
+      "confidence": 0.86,
+      "grounding": "high",
+      "sources": 5,
+      "top_score": 0.7748,
+      "output_tokens": 318,
+      "cost": 0.002911,
+      "latency": 5289.5
+    }
+  },
+  {
+    "id": "Q6",
+    "question": "What happens if I exceed my monthly API request quota?",
+    "correct": "Service is not suspended; overage is billed automatically at the plan's rate.",
+    "standard": {
+      "answer": "If you exceed your monthly API request quota, here's what happens: • **Service continues** — Your service is not suspended when you exceed the allowance [pricing-and-plans.md#chunk-2] • **Automatic overage billing** — You're billed automatically at the end of the billing period at a rate that depends on your plan: $2.00 per 10,000 requests (Starter), $1.20 per 10,000 requests (Business), or $0.60 per 10,000 requests (Enterprise) [pricing-and-plans.md#chunk-1] • **Optional spending cap** — You can enable a spending cap in billing settings to return HTTP 429 responses once the cap is reached, providing a hard stop if preferred [pricing-and-plans.md#chunk-2] • **Alerts** — Account administrators receive email alerts at 80% and 100% of your included allowance [pricing-and-plans.md#chunk-2] Note that overage charges are never refundable [pricing-and-plans.md#chunk-2].",
+      "confidence": 0.79,
+      "grounding": "high",
+      "sources": 5,
+      "top_score": 0.6815,
+      "output_tokens": 250,
+      "cost": 0.002313,
+      "latency": 2716.7
+    },
+    "simple": {
+      "answer": "You keep using the service—it doesn't shut off [pricing-and-plans.md#chunk-2]. Instead, you get charged extra money at the end of the month for the requests over your limit. Here's how the extra charges work [pricing-and-plans.md#chunk-1]: - **Starter plan**: $2.00 per 10,000 extra requests - **Business plan**: $1.20 per 10,000 extra requests - **Enterprise plan**: $0.60 per 10,000 extra requests You'll get warning emails when you hit 80% and 100% of your included allowance [pricing-and-plans.md#chunk-2]. If you want to stop instead of paying overages, you can turn on a spending cap in your billing settings, which will block requests once you hit that limit [pricing-and-plans.md#chunk-2]. One important thing: those overage charges can never be refunded [refund-and-cancellation-policy.md#chunk-2].",
+      "confidence": 0.79,
+      "grounding": "high",
+      "sources": 5,
+      "top_score": 0.6815,
+      "output_tokens": 237,
+      "cost": 0.002383,
+      "latency": 3122.4
+    }
+  },
+  {
+    "id": "Q7",
+    "question": "Who do I page if the on-call engineer does not respond within 15 minutes?",
+    "correct": "The secondary on-call; then the engineering manager on duty after a further 15 minutes.",
+    "standard": {
+      "answer": "If the primary on-call engineer does not acknowledge within 15 minutes, the page automatically escalates to the **secondary on-call** [support-escalation-runbook.md#chunk-3].",
+      "confidence": 0.63,
+      "grounding": "medium",
+      "sources": 5,
+      "top_score": 0.6463,
+      "output_tokens": 47,
+      "cost": 0.001377,
+      "latency": 1437.4
+    },
+    "simple": {
+      "answer": "You page the **secondary on-call engineer** [support-escalation-runbook.md#chunk-3]. Here's how it works: When a critical problem (called an S1) is reported, the primary on-call engineer gets paged first. If they don't say \"yes, I'm taking this\" within 15 minutes, the system automatically pages the secondary engineer instead. Think of it like calling your friend, and if they don't pick up in time, the call automatically goes to their backup friend.",
+      "confidence": 0.63,
+      "grounding": "medium",
+      "sources": 5,
+      "top_score": 0.6466,
+      "output_tokens": 114,
+      "cost": 0.001847,
+      "latency": 2239.5
+    }
+  },
+  {
+    "id": "Q8",
+    "question": "Can I still get a refund 45 days after my invoice?",
+    "correct": "No. The Enterprise window is 30 days and requests after it are not eligible.",
+    "standard": {
+      "answer": "No. The refund window depends on your plan [refund-and-cancellation-policy.md#chunk-1]: - **Enterprise**: 30 days from invoice date - **Business**: 14 days from invoice date - **Starter**: Non-refundable At 45 days after your invoice, you would be outside all applicable refund windows. Requests submitted after the deadline are not eligible for a refund, regardless of usage level [refund-and-cancellation-policy.md#chunk-1].",
+      "confidence": 0.58,
+      "grounding": "medium",
+      "sources": 5,
+      "top_score": 0.6009,
+      "output_tokens": 120,
+      "cost": 0.001808,
+      "latency": 2085.6
+    },
+    "simple": {
+      "answer": "No, you cannot get a refund 45 days after your invoice [refund-and-cancellation-policy.md#chunk-1]. Here's why: the refund window depends on your plan. Enterprise customers get 30 days, and Business customers get 14 days. Once that window closes, refund requests are not eligible anymore, no matter what [refund-and-cancellation-policy.md#chunk-1]. Starter plans are never refundable [refund-and-cancellation-policy.md#chunk-1]. Since 45 days is past all of these windows, you're too late to request a refund.",
+      "confidence": 0.58,
+      "grounding": "medium",
+      "sources": 5,
+      "top_score": 0.6009,
+      "output_tokens": 147,
+      "cost": 0.002078,
+      "latency": 2358.7
+    }
+  },
+  {
+    "id": "Q9",
+    "question": "What is the difference between a refund and a service credit?",
+    "correct": "A refund returns money against the original payment; a service credit offsets a future invoice and is never paid in cash.",
+    "standard": {
+      "answer": "• **Service credits** are applied against future invoices and are never paid out in cash [enterprise-sla.md#chunk-2]. They are issued when monthly uptime falls below the SLA commitment and are the sole remedy for missed uptime [enterprise-sla.md#chunk-2]. • **Refunds** are actual money returned to the original payment method within 10 business days, or issued as a credit note/bank transfer for invoice customers [refund-and-cancellation-policy.md#chunk-4]. Refunds are governed by a separate policy and are only available for Enterprise (30 days) and Business (14 days) plans within specified windows [refund-and-cancellation-policy.md#chunk-1]. • Critically, service credits are **not** refunds [enterprise-sla.md#chunk-2], and the two policies are separate [refund-and-cancellation-policy.md#chunk-0].",
+      "confidence": 0.64,
+      "grounding": "medium",
+      "sources": 5,
+      "top_score": 0.5376,
+      "output_tokens": 215,
+      "cost": 0.002232,
+      "latency": 3011.5
+    },
+    "simple": {
+      "answer": "A **refund** is money paid back to you, while a **service credit** is a discount applied to your next bill—never cash [enterprise-sla.md#chunk-2]. Here's why they're different: **Service credits** are what you get if Northwind Analytics has too much downtime. They reduce what you owe on your *future* invoice [enterprise-sla.md#chunk-2]. For example, if the service is down too much in one month, you might get 10% off next month's bill. **Refunds** are actual money returned to your original payment method within 10 business days [refund-and-cancellation-policy.md#chunk-4]. You can request a refund if you're an Enterprise or Business customer within a certain time window after being charged [refund-and-cancellation-policy.md#chunk-1]. The key point: service credits and refunds are separate things governed by different rules [refund-and-cancellation-policy.md#chunk-0].",
+      "confidence": 0.64,
+      "grounding": "medium",
+      "sources": 5,
+      "top_score": 0.5376,
+      "output_tokens": 233,
+      "cost": 0.002457,
+      "latency": 3008.0
+    }
+  },
+  {
+    "id": "Q10",
+    "question": "Do you sign HIPAA Business Associate Agreements?",
+    "correct": "Should decline to answer.",
+    "standard": {
+      "answer": "I could not find information about that in the knowledge base.",
+      "confidence": 0.22,
+      "grounding": "insufficient_context",
+      "sources": 0,
+      "top_score": 0.3264,
+      "output_tokens": 0,
+      "cost": 0.0,
+      "latency": 218.6
+    },
+    "simple": {
+      "answer": "I could not find information about that in the knowledge base.",
+      "confidence": 0.22,
+      "grounding": "insufficient_context",
+      "sources": 0,
+      "top_score": 0.3264,
+      "output_tokens": 0,
+      "cost": 0.0,
+      "latency": 216.3
+    }
+  },
+  {
+    "id": "Q11",
+    "question": "¿Cuál es la política de reembolsos para clientes enterprise?",
+    "correct": "Same as Q1: 30 days from the invoice date.",
+    "standard": {
+      "answer": "Para clientes Enterprise, la política de reembolsos es la siguiente [refund-and-cancellation-policy.md#chunk-1]: • **Ventana de reembolso**: 30 días desde la fecha de la factura • **Aprobación requerida**: El account manager asignado al contrato debe aprobar cada reembolso antes de que Finanzas lo procese • **Cálculo**: Los reembolsos aprobados se prorratean contra el tiempo de suscripción no utilizado, medido en días completos desde la fecha de la solicitud [refund-and-cancellation-policy.md#chunk-2] • **No reembolsables**: Servicios profesionales ya entregados, cargos por exceso de API, tarifas de terceros y desarrollo personalizado aceptado por el cliente [refund-and-cancellation-policy.md#chunk-2]",
+      "confidence": 0.64,
+      "grounding": "medium",
+      "sources": 5,
+      "top_score": 0.5396,
+      "output_tokens": 221,
+      "cost": 0.002255,
+      "latency": 2663.0
+    },
+    "simple": {
+      "answer": "# Política de reembolsos para clientes Enterprise Los clientes Enterprise pueden solicitar un reembolso dentro de **30 días desde la fecha de la factura** [refund-and-cancellation-policy.md#chunk-1]. Aquí está cómo funciona: - **Ventana de tiempo**: Tienes 30 días contados desde que recibes la factura. Después de eso, no puedes pedir reembolso [refund-and-cancellation-policy.md#chunk-1]. - **Quién aprueba**: Tu gestor de cuenta (account manager) debe aprobar el reembolso antes de que Finanzas lo procese [refund-and-cancellation-policy.md#chunk-1]. - **Cómo se calcula**: El reembolso se prorratea según los días no utilizados, contando días completos solamente [refund-and-cancellation-policy.md#chunk-2]. - **Qué NO se reembolsa**: Algunos gastos nunca se devuelven: servicios profesionales ya entregados, cargos por exceso de API, tarifas de terceros, y trabajo personalizado que ya aceptaste [refund-and-cancellation-policy.md#chunk-2].",
+      "confidence": 0.64,
+      "grounding": "medium",
+      "sources": 5,
+      "top_score": 0.5396,
+      "output_tokens": 309,
+      "cost": 0.00283,
+      "latency": 3341.5
+    }
+  }
+]

@@ -752,7 +752,8 @@ for a whole month costs about **$2**.
 ```
 infra/          CDK: one stack, four constructs, 24 security assertions
 services/       Four Lambdas -- query, documents, ingest, authorizer. Query has zero dependencies
-client/         Streamlit: HTTP and render only
+client/         Streamlit: HTTP and render only. `theme.py` holds the design system
+                and both palettes (light / dark / system)
 sample-docs/    Eight business documents, including one PDF
 scripts/        Probe, seed, smoke test, evaluate, configure, build
 tests/          125 unit tests, no AWS needed
