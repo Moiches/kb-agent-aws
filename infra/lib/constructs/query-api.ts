@@ -115,10 +115,17 @@ export class QueryApi extends Construct {
 
     this.queryFunction = new LambdaFunction(this, 'Query', {
       functionName: `${namePrefix}-query`,
-      description: 'Retrieval, grounded generation, citation verification and confidence',
+      description: 'Retrieval, grounded generation, citation checks, answer verification and confidence',
       runtime: Runtime.PYTHON_3_12,
       handler: 'handler.lambda_handler',
-      code: Code.fromAsset(path.join(__dirname, '..', '..', '..', 'services', 'query')),
+      code: Code.fromAsset(path.join(__dirname, '..', '..', '..', 'services', 'query'), {
+        // Bytecode caches never ship. Local pytest leaves 3.11 caches under rag/, and pip
+        // writes them into the vendored closure too; the 3.12 runtime ignores both, so
+        // they cost only size -- but the asset hash would then depend on which tests last
+        // ran on the developer's machine, and the function would redeploy when nothing
+        // that runs in it had changed.
+        exclude: ['**/__pycache__', '**/*.pyc'],
+      }),
       // Generous because the provider is off-AWS and slow: ~625 ms to embed and seconds to
       // generate. API Gateway caps the whole request at 29 s regardless.
       timeout: Duration.seconds(28),
@@ -145,6 +152,30 @@ export class QueryApi extends Construct {
         LOG_QUESTIONS: String(config.logQuestions),
         EMIT_METRICS: String(config.emitMetrics),
         QUERY_LOG_TTL_DAYS: String(config.queryLogTtl.toDays()),
+
+        // ---- answer verification (experiment/langgraph-verify, ADR-0010)
+        // A second model call checks the answer against the passages it cited and can
+        // send it back for one revision. Pinned here rather than left to the defaults in
+        // rag/config.py so that `aws lambda get-function-configuration` states what a
+        // deployment is doing: the experiment protocol toggles these in place, and a
+        // value that is not in the configuration cannot be toggled or read back.
+        VERIFY_ENABLED: 'true',
+        // The same slug as generation. A stronger checker is one variable away, and
+        // the protocol measures the loop before it pays for a second model.
+        VERIFY_MODEL_ID: models.generationModel,
+        VERIFY_MAX_ROUNDS: '1',
+        // 'langgraph' or 'loop': the same nodes under the framework or a while-loop.
+        ORCHESTRATOR: 'langgraph',
+        // Off, and asserted off by the CDK tests. langchain_core.tracers.langchain imports
+        // langsmith at module level, so the client is loaded on every cold start whether
+        // or not anything traces, and it enables itself from the environment alone: a
+        // tracing flag equal to 'true' plus an API key, the two variables every LangSmith
+        // quickstart has a developer export. Copying a shell's variables into this
+        // function would then post each question, the retrieved passages and the answer
+        // to a second third party. The library reads the flag under a LANGSMITH_ and a
+        // LANGCHAIN_ prefix; it is pinned under both.
+        LANGSMITH_TRACING: 'false',
+        LANGCHAIN_TRACING_V2: 'false',
       },
     });
 
@@ -171,7 +202,13 @@ export class QueryApi extends Construct {
       cloudWatchRole: props.cloudWatchRole,
       // RETAIN because it is an account-wide singleton: destroying this stack must not
       // silently disable API Gateway logging for anything else in the account.
-      cloudWatchRoleRemovalPolicy: RemovalPolicy.RETAIN,
+      //
+      // Only valid when the role is ours to create. CDK rejects a removal policy for a
+      // resource the stack does not own, so passing one alongside `cloudWatchRole: false`
+      // fails at synth -- which is precisely the combination a shared account needs, and
+      // therefore the combination most likely to be tried for the first time under time
+      // pressure. Found by deploying a second stack into an account that already had one.
+      ...(props.cloudWatchRole ? { cloudWatchRoleRemovalPolicy: RemovalPolicy.RETAIN } : {}),
       deployOptions: {
         stageName: config.envName,
         // Same request id that appears in the Lambda log, the X-Ray trace, the DynamoDB

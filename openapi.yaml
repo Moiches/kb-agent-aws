@@ -399,8 +399,9 @@ components:
           maximum: 10
           default: 5
           description: |
-            Passages to retrieve. A per-document cap of 3 also applies, so one long document
-            cannot monopolise the context.
+            Passages to retrieve. A per-document cap of at least 3, scaling with document
+            length (5% of its chunks), also applies, so one long document cannot monopolise
+            the context.
         style:
           type: string
           enum: [standard, simple]
@@ -552,6 +553,27 @@ components:
           type: string
           enum: [standard, simple]
           description: The answer style that served this request. Echoed so a stored answer stays interpretable.
+        verification:
+          type: object
+          description: |
+            What the second reading concluded (branch `experiment/langgraph-verify`; absent on
+            `main`). Reported whether or not the pass ran: `skipped` means it was disabled or
+            the invocation was too close to its deadline, `unverified` that the checker
+            answered in a shape that could not be parsed. Omitting either would make an
+            unchecked answer indistinguishable from a checked one.
+          properties:
+            verdict: { type: string, enum: [pass, fail, unverified, skipped] }
+            issue:
+              type: string
+              description: One sentence naming what the checker disagreed with. Empty on a pass.
+            rounds: { type: integer, description: Revisions the answer went through. 0 when it passed first time. }
+            claims_checked: { type: integer }
+            failed_claims:
+              type: array
+              items: { type: object }
+              description: The claims whose supporting quote did not hold up.
+            verification_ms: { type: number }
+            model: { type: string, description: What checked it. May differ from the model that answered. }
         model: { type: string, description: What actually served the request. OpenRouter routes, so this can differ from what was configured. }
         embedding_model: { type: string }
         retrieval_strategy: { type: string, example: in_memory_cosine_topk }

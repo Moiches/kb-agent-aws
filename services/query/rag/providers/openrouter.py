@@ -65,11 +65,20 @@ class OpenRouterProvider:
             raise ProviderError(ErrorKind.INTERNAL, f"no embedding returned: {json.dumps(body)[:200]}")
         return normalize(rows[0]["embedding"])
 
-    def generate(self, system: str, user: str, max_tokens: int, temperature: float) -> GenerationResult:
+    def generate(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int,
+        temperature: float,
+        model: str | None = None,
+    ) -> GenerationResult:
         body = self._post(
             "/chat/completions",
             {
-                "model": self.generation_model,
+                # A per-call override (the verifier's slug) wins over the configured default.
+                # The result still reports what the response says served it, not this value.
+                "model": model or self.generation_model,
                 "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},

@@ -10,8 +10,11 @@ caller in `metadata.confidence_components`.
 
 Known limitation, stated plainly because it matters: **this measures retrieval quality,
 not factual correctness.** A perfect retrieval followed by a bad generation still scores
-high. Closing that gap needs a second verification pass over the answer, which would
-roughly double per-query cost; it is listed as future work rather than implemented.
+high. Closing that gap needs a second reading of the answer against its passages, which
+roughly doubles per-query cost. On this branch that reading exists (`verifier.py`, run by
+`nodes.py`) and its verdict reaches `grounding_label` as an extra argument. It is applied
+after the formula, not mixed into it: the three components keep meaning what they mean on
+main, and a failed verdict shows up as the label, not as a lower number.
 """
 
 from __future__ import annotations
@@ -114,13 +117,24 @@ def compute_confidence(
     return round(_clamp01(confidence), 2), components
 
 
-def grounding_label(confidence: float, top_score: float, *, floor: float, abstained: bool) -> str:
+def grounding_label(
+    confidence: float, top_score: float, *, floor: float, abstained: bool, verdict: str | None = None
+) -> str:
     """Bucket the score into something a human can act on.
 
     A number like 0.63 tells a user nothing; "medium, check the sources" does.
+
+    `verdict` is the verification pass's word on the answer (verifier.py). Only "fail"
+    changes anything, and it pulls the label to "low" -- the label the client already
+    renders as "verify against the sources before relying on this", which is exactly the
+    right advice for an answer a second reading disagreed with. "pass", "unverified",
+    "skipped" and None leave the bands alone: an unverified answer is not evidence of a
+    wrong one, and main, which never verifies, must keep labelling as it does today.
     """
     if abstained or top_score < floor:
         return "insufficient_context"
+    if verdict == "fail":
+        return "low"
     if confidence >= GROUNDING_HIGH:
         return "high"
     if confidence >= GROUNDING_MEDIUM:

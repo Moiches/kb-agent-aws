@@ -2,11 +2,18 @@
 
     python scripts/eval_run.py --api-url ... --token ...
     python scripts/eval_run.py --stack kbagent-mc-dev        # reads both from AWS
+    python scripts/eval_run.py --stack kbagent-lg-dev --out evaluation/runs/L1-r1.json
+    python scripts/eval_run.py --questions evaluation/questions-longdoc.json --style simple
 
 Produces two artifacts:
 
   evaluation/results.json   every response in full, for calibration
   evaluation/results.md     the table that goes into EVALUATION.md
+
+`--out` moves both: the markdown lands beside the JSON under the same stem, so a run written
+to evaluation/runs/M-r1.json can never overwrite the committed results.md. Without it the
+paths above apply and nothing about the original invocation changes. Files written this way
+are what `scripts/eval_compare.py` reads to put two deployments side by side.
 
 It does not decide whether an answer is *correct*. Correctness against `correct_answer`
 needs a human read, and a script that graded itself would just be the same model marking
@@ -33,7 +40,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 QUESTIONS = ROOT / "evaluation" / "questions.json"
 RESULTS_JSON = ROOT / "evaluation" / "results.json"
-RESULTS_MD = ROOT / "evaluation" / "results.md"
 
 WINDOWS_CLI = Path(r"C:\Program Files\Amazon\AWSCLIV2\aws.exe")
 
@@ -65,8 +71,11 @@ def from_stack(stack: str, profile: str | None) -> tuple[str, str]:
     return values["ApiBaseUrl"], token
 
 
-def ask(api_url: str, token: str, question: str, top_k: int) -> tuple[int, dict, float]:
-    payload = json.dumps({"question": question, "session_id": "evaluation", "top_k": top_k}).encode()
+def ask(api_url: str, token: str, question: str, top_k: int,
+        style: str = "standard") -> tuple[int, dict, float]:
+    payload = json.dumps(
+        {"question": question, "session_id": "evaluation", "top_k": top_k, "style": style}
+    ).encode()
     request = urllib.request.Request(
         f"{api_url.rstrip('/')}/query",
         data=payload,
@@ -90,7 +99,11 @@ def evaluate(case: dict, status: int, body: dict) -> dict:
     sources = body.get("sources", [])
     documents = [s["document_id"] for s in sources]
     scores = [s["score"] for s in sources]
-    abstained = body.get("metadata", {}).get("abstained", False)
+    metadata = body.get("metadata", {})
+    # Additive, and only present on a deployment that verifies its answers. On main it is
+    # absent and every field read from it below comes out None.
+    verification = metadata.get("verification") or {}
+    abstained = metadata.get("abstained", False)
     expected = case["expect_documents"]
 
     if case["expect"] == "abstain":
@@ -112,6 +125,10 @@ def evaluate(case: dict, status: int, body: dict) -> dict:
         "top_score": round(scores[0], 4) if scores else 0.0,
         "scores": [round(s, 4) for s in scores],
         "documents": documents,
+        # The retrieved set at chunk granularity. Document names cannot tell two runs apart
+        # when the same document supplied a different passage, and "did retrieval move at
+        # all" is the first thing a comparison between deployments has to settle.
+        "chunk_ids": [s["chunk_id"] for s in sources],
         "top_document": documents[0] if documents else None,
         "expected_documents": expected,
         # Did the document that holds the answer make it into the results at all?
@@ -122,16 +139,25 @@ def evaluate(case: dict, status: int, body: dict) -> dict:
         "cited_count": sum(1 for s in sources if s.get("cited")),
         "source_count": len(sources),
         "behaviour_ok": behaviour_ok,
-        "components": body.get("metadata", {}).get("confidence_components", {}),
-        "latency_ms": body.get("metadata", {}).get("latency_ms"),
-        "input_tokens": body.get("metadata", {}).get("input_tokens", 0),
-        "output_tokens": body.get("metadata", {}).get("output_tokens", 0),
-        "cost_usd": body.get("metadata", {}).get("estimated_cost_usd", 0),
-        "request_id": body.get("metadata", {}).get("request_id"),
+        "components": metadata.get("confidence_components", {}),
+        # Taken from the response rather than the flag, so the file says what the server
+        # actually used.
+        "style": metadata.get("style"),
+        "latency_ms": metadata.get("latency_ms"),
+        "generation_ms": metadata.get("generation_ms"),
+        "input_tokens": metadata.get("input_tokens", 0),
+        "output_tokens": metadata.get("output_tokens", 0),
+        "cost_usd": metadata.get("estimated_cost_usd", 0),
+        # None means "this deployment does not verify", which is a different fact from
+        # 'skipped' and is kept distinct rather than defaulted away.
+        "verification_verdict": verification.get("verdict"),
+        "verification_rounds": verification.get("rounds"),
+        "verification_ms": verification.get("verification_ms"),
+        "request_id": metadata.get("request_id"),
     }
 
 
-def write_markdown(results: list[dict], summary: dict) -> None:
+def write_markdown(results: list[dict], summary: dict, path: Path) -> None:
     lines = [
         "# Evaluation results",
         "",
@@ -179,7 +205,15 @@ def write_markdown(results: list[dict], summary: dict) -> None:
                 f"{statistics.median(group):.3f} | {max(group):.3f} |"
             )
 
-    RESULTS_MD.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _display(path: Path) -> str:
+    """Repo-relative when the file is under the repo; --out may point anywhere."""
+    try:
+        return str(path.resolve().relative_to(ROOT))
+    except ValueError:
+        return str(path)
 
 
 def main() -> int:
@@ -189,18 +223,24 @@ def main() -> int:
     parser.add_argument("--stack", default="kbagent-dev")
     parser.add_argument("--profile", default=None)
     parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument("--questions", type=Path, default=QUESTIONS,
+                        help="question set to run (default: evaluation/questions.json)")
+    parser.add_argument("--style", choices=("standard", "simple"), default="standard",
+                        help="answer register to request; what the server used is recorded per result")
+    parser.add_argument("--out", type=Path, default=RESULTS_JSON,
+                        help="where the JSON goes; the markdown table is written beside it")
     args = parser.parse_args()
 
     api_url, token = (args.api_url, args.token)
     if not (api_url and token):
         api_url, token = from_stack(args.stack, args.profile)
 
-    cases = json.loads(QUESTIONS.read_text(encoding="utf-8"))["questions"]
+    cases = json.loads(args.questions.read_text(encoding="utf-8"))["questions"]
     results = []
 
     print(f"Running {len(cases)} questions against {api_url}\n")
     for case in cases:
-        status, body, elapsed = ask(api_url, token, case["question"], args.top_k)
+        status, body, elapsed = ask(api_url, token, case["question"], args.top_k, args.style)
         record = evaluate(case, status, body)
         results.append(record)
 
@@ -216,18 +256,23 @@ def main() -> int:
         "behaviour_pass": sum(1 for r in results if r["behaviour_ok"]),
         "total_cost": sum(r["cost_usd"] for r in results),
         "median_latency": statistics.median([r["latency_ms"] or 0 for r in results]),
+        # So a file under evaluation/runs/ says on its own what produced it.
+        "questions": args.questions.name,
+        "style": args.style,
     }
 
-    RESULTS_JSON.write_text(
+    results_json, results_md = args.out, args.out.with_suffix(".md")
+    results_json.parent.mkdir(parents=True, exist_ok=True)
+    results_json.write_text(
         json.dumps({"summary": summary, "results": results}, indent=2), encoding="utf-8"
     )
-    write_markdown(results, summary)
+    write_markdown(results, summary, results_md)
 
     print(
         f"\n{summary['behaviour_pass']}/{summary['count']} behaved as expected  ·  "
         f"${summary['total_cost']:.4f}  ·  median {summary['median_latency']:.0f} ms"
     )
-    print(f"Wrote {RESULTS_JSON.relative_to(ROOT)} and {RESULTS_MD.relative_to(ROOT)}")
+    print(f"Wrote {_display(results_json)} and {_display(results_md)}")
     return 0
 
 

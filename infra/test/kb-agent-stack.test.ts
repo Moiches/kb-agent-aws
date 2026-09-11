@@ -283,6 +283,20 @@ describe('seeding', () => {
     expect(json).not.toContain('raw/');
   });
 
+  test('a shared account can deploy: cloudWatchRole=false still synthesizes', () => {
+    // The combination a shared or sandbox account needs, and the one nobody exercises until
+    // the day it matters. CDK refuses a removal policy for a resource the stack does not
+    // own, so `cloudWatchRoleRemovalPolicy` alongside `cloudWatchRole: false` throws at
+    // synth. That is exactly what happened deploying a second stack into an account that
+    // already owned the singleton; this assertion is here so it cannot come back.
+    expect(() => synth({ cloudWatchRole: 'false' })).not.toThrow();
+
+    // And it must genuinely decline the account-wide singleton rather than merely survive.
+    const shared = synth({ cloudWatchRole: 'false' });
+    expect(Object.keys(shared.findResources('AWS::ApiGateway::Account'))).toHaveLength(0);
+    expect(Object.keys(synth().findResources('AWS::ApiGateway::Account'))).toHaveLength(1);
+  });
+
   test('deleting a document is authenticated like everything else', () => {
     template.hasResourceProperties('AWS::ApiGateway::Method', {
       HttpMethod: 'DELETE',
@@ -296,5 +310,60 @@ describe('seeding', () => {
     // The value is an Fn::Join because the function name is a resource reference, so the
     // assertion goes against the rendered form rather than a plain string.
     expect(JSON.stringify(outputs.SeedCommand.Value)).toContain('aws lambda invoke');
+  });
+});
+
+describe('answer verification', () => {
+  const template = synth({ prefix: 'kbagent-mc' });
+
+  test('LangSmith tracing is pinned off, so no second third party sees a question', () => {
+    // langchain_core.tracers.langchain imports langsmith at module level, so the client
+    // library is loaded on every cold start whether or not anything traces -- and it
+    // switches itself on from the environment alone: LANGSMITH_TRACING or
+    // LANGCHAIN_TRACING_V2 equal to 'true' plus an API key, the two variables every
+    // LangSmith quickstart has a developer export. Copying a shell's variables into the
+    // function configuration would then post each question, the retrieved passages and the
+    // answer to smith.langchain.com. The provider is the one third party this API sends
+    // user data to; pinning the flag under both prefixes the library reads makes that a
+    // property of the template, not of whatever happened to be in someone's environment.
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'kbagent-mc-dev-query',
+      Environment: {
+        Variables: {
+          LANGSMITH_TRACING: 'false',
+          LANGCHAIN_TRACING_V2: 'false',
+        },
+      },
+    });
+  });
+
+  test('verification is switched on in the environment and added nothing to the role', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'kbagent-mc-dev-query',
+      Environment: {
+        Variables: { VERIFY_ENABLED: 'true', ORCHESTRATOR: 'langgraph' },
+      },
+    });
+
+    // The verifier is a second call to the same provider through the same secret, and the
+    // graph runs in-process with no checkpointer, so nothing about the loop needs AWS. The
+    // invariant from before the experiment therefore has to survive it unchanged: the query
+    // role reads the index and can never write to the bucket. Asserted as a shape rather
+    // than as the absence of two verbs, so a future grant of any new service shows up here.
+    const policies = template.findResources('AWS::IAM::Policy');
+    const [queryPolicy] = Object.entries(policies)
+      .filter(([name]) => name.startsWith('ApiQueryServiceRole'))
+      .map(([, resource]) => resource as any);
+    expect(queryPolicy).toBeDefined();
+
+    const actions: string[] = (queryPolicy.Properties.PolicyDocument.Statement as any[])
+      .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+    expect(actions).not.toContain('s3:PutObject');
+    expect(actions).not.toContain('s3:DeleteObject');
+    for (const action of actions.filter((a) => a.startsWith('s3:'))) {
+      expect(action).toMatch(/^s3:(Get|List)/);
+    }
+    const services = [...new Set(actions.map((a) => a.split(':')[0]))].sort();
+    expect(services).toEqual(['dynamodb', 's3', 'secretsmanager', 'xray']);
   });
 });

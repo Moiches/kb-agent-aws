@@ -274,6 +274,160 @@ attention naturally goes, but in reasoning over material that had been retrieved
 
 ---
 
+## The answer verification experiment
+
+Branch `experiment/langgraph-verify`, stack `kbagent-lg-dev`, run 2026-09-11. The question:
+can a second pass **catch** the Q2 failure above, rather than avoid it — and is a framework
+worth carrying to orchestrate that?
+
+Every threshold below was written into [ADR-0010](docs/adr/0010-verification-loop-langgraph.md)
+**before any run existed**, including a prediction of the outcome. Four configurations of one
+deployment, toggled by environment variable so packaging, verification and framework are
+three separate numbers instead of one confounded one:
+
+| | Orchestrator | Verification | What it isolates |
+|---|---|---|---|
+| **M** | — | off | `main` |
+| **L0** | loop | off | the 48 MB asset, nothing imported |
+| **L1** | langgraph | on | the experiment |
+| **L2** | loop | on | the same nodes without the framework |
+
+### The headline: Q2 is caught and corrected, 3 runs out of 3
+
+| | Answer | Rounds |
+|---|---|---|
+| **M** ×3 | *"If monthly uptime drops to exactly 99.0%, **no service credit applies**"* ❌ | — |
+| **L1** ×3 | *"a **10% service credit** applies against the next invoice"* ✅ | **1** |
+
+`rounds=1` is the whole mechanism visible in one number: the first generation was wrong, the
+verifier rejected it, the reviewer note went back into a second generation, and the second
+answer was right. The final verdict is `pass` because the corrected answer *is* supported.
+
+The project's headline failure — perfect retrieval, wrong answer, `confidence 0.75,
+grounding: high` — is fixed by the only mechanism that could reach it. No chunker and no
+retriever was touched.
+
+### The control: retrieval did not move
+
+**33 of 33** question-runs match `main` exactly. Max |Δ top_score| = **0.0001**, which is
+float noise from the embedding call. Identical `chunk_ids` throughout.
+
+That is the proof the comparison is honest: whatever changed, retrieval did not.
+
+### Every pre-registered threshold
+
+| # | Measure | Threshold | Measured | |
+|---|---|---|---|---|
+| 1 | Retrieval identity | 33/33 | **33/33**, Δ ≤ 0.0001 | ✅ |
+| 2 | Behaviour | 11/11 every run | **110/110** | ✅ |
+| 3 | Q2 caught | ≥ 3/3 | **3/3, and corrected** | ✅ |
+| 4 | False failures | ≤ 1/27 | **0/30** | ✅ |
+| 5 | Harmful revisions | 0/27 | **0/30** | ✅ |
+| 6 | Cost | ≤ 2.5× | **2.42×** ($0.0017 → $0.0041) | ✅ |
+| 7 | Warm latency | ≤ +3,000 ms | **+386 ms** median, max 4,255 ms | ✅ |
+| 8 | Cold start L1 | ≤ 4,000 ms | **579 ms** | ✅ |
+| 9 | Graph/loop parity | identical | **identical** | ✅ |
+
+**Decision: adopt the loop.**
+
+### Two predictions that were wrong, and the framework verdict
+
+ADR-0010 predicted the framework would be rejected on cold-start cost, estimating a
+**+1,000–2,000 ms** penalty from importing LangGraph. Measured:
+
+| Attribution | Delta |
+|---|---|
+| Packaging — 48 MB of vendored wheels (L0 − M) | **−31 ms** |
+| Framework — importing and running the graph (L1 − L2) | **+28 ms** |
+
+Both are inside the run-to-run noise of a 550 ms init. **The prediction was wrong by two
+orders of magnitude.** A 12.9 MB zipped asset and an eager `langgraph` import cost
+essentially nothing on a 1024 MB Lambda, and the warm-latency prediction (+2,000–2,500 ms)
+was wrong the same way: the real cost is +386 ms.
+
+So the framework is cheap. It is still rejected, and for the reason the rule actually
+named: *adopt it only if ADR-0010 can name one behaviour the plain loop did not reproduce.*
+Parity found **zero** differences across all 11 questions — same verdicts, same rounds, same
+grounding. There is nothing to name.
+
+**Verdict: the loop is adopted, the framework is not.** Not because it is expensive — it
+measurably is not — but because 35 lines of `while` loop over the same nodes do the same
+thing, and a dependency that adds nothing observable is a dependency to remove. `main` keeps
+ADR-02 and its zero-third-party-dependency query Lambda.
+
+The honest reading of that: the *reason* to reject LangGraph here was available before the
+experiment, and the experiment's real contribution was disproving the cost argument I had
+reached for.
+
+### What the experiment exposed that nobody was looking for
+
+**`VERIFY_MAX_TOKENS = 400` made the verifier blind on 6 of 11 questions.** The pattern was
+exact: every answer ≤ 336 characters returned a verdict, every answer ≥ 426 characters
+returned `unverified`. The checker emits JSON with one entry per claim; a long answer means
+a long array, and 400 tokens truncated it mid-object. `parse_verdict` fails closed to
+`unverified` rather than guessing, which is why this showed up as a visible state instead of
+a silent pass.
+
+Raising the cap to 1500:
+
+| | pass | unverified |
+|---|---|---|
+| 400 tokens | 4 | **6** |
+| 1500 tokens | **8** | 2 |
+
+Which qualifies the "0 false failures" result honestly: at the shipped cap, six of those
+answers were never actually checked. At 1500 the verdict count doubles, Q2 is still caught
+and corrected, and false failures stay at zero.
+
+Two remain `unverified` at 1500 — Q8 and Q9 — and length does not explain them: Q5 at 949
+characters now passes while Q8 at 426 does not. Unexplained, and recorded as unexplained.
+
+**A CDK bug that only a second stack could find.** Deploying beside `main` failed at synth:
+
+```
+CloudWatchRoleEnabledCloud: 'cloudWatchRole' must be enabled for
+'cloudWatchRoleRemovalPolicy' to be applied.
+```
+
+`-c cloudWatchRole=false` is the flag a shared account needs — the one documented for the
+AMCRO sandbox. **That documented command would have failed**, and nothing would have revealed
+it until someone ran it under time pressure. Fixed, with a CDK assertion pinning both halves.
+Underneath it, stale `tsc` output left in the tree was shadowing the TypeScript under jest,
+so the suite had been testing pre-fix code.
+
+Neither was found by a test. Both were found by deploying a second stack into an account that
+already had one — which is exactly the sandbox's condition.
+
+### Failure B: not fixed, and the record corrected
+
+The scaled per-document cap `max(3, ceil(0.05 × chunks))` landed on `main` so both stacks
+share it. On a 181-chunk paper it changes retrieval — L1 surfaces the Limitations chunk that
+M does not — and **both stacks still abstain**, three runs each. The cap is a retrieval fix;
+these questions fail past retrieval.
+
+One correction to this document's own record. The original failure-B measurement was made
+against a *different* paper (a 174-chunk Statistics in Medicine PDF, recovered from the
+DynamoDB query log), which is no longer available. The run above used a different long
+document, so it is **not a reproduction** of the original finding — it is a fresh measurement
+of the same class of problem, and it did not reproduce the improvement.
+
+### Cost of the whole experiment
+
+About **$0.45** of model usage across 14 evaluation runs, the probe, the smoke tests and the
+cold starts. The branch stack was destroyed the same day.
+
+### What lands on `main`
+
+`verifier.py`, `nodes.py` with `run_loop`, the handler wiring and the summed-token cost
+accounting — with `ORCHESTRATOR` removed, no vendored dependencies and ADR-02 intact. The
+`VERIFY_MAX_TOKENS` default moves to 1500, because 400 was measured to blind the checker on
+more than half the corpus.
+
+`graph.py`, `requirements-lambda.txt` and `services/query/vendor/` stay on the branch, as the
+record of a question that was asked properly and answered with numbers.
+
+---
+
 ## What I would improve next
 
 Ordered by impact against effort.

@@ -1,0 +1,128 @@
+{
+  "summary": {
+    "count": 2,
+    "behaviour_pass": 0,
+    "total_cost": 0.003828,
+    "median_latency": 1789.65,
+    "questions": "questions-longdoc.json",
+    "style": "standard"
+  },
+  "results": [
+    {
+      "id": "LD1",
+      "question": "What risks or limitations of the watermarking approach does the Rent-a-RAG paper identify?",
+      "expect": "answered",
+      "tests": "LONG DOCUMENT, English. 181 chunks on one subject; the answer lives in one Limitations section. This is the control for LD2: the English form answered on 2026-09-08 against the original paper.",
+      "correct_answer": "The method needs a provider that can rewrite its corpus before deployment and accept meaning-preserving paraphrase, so it is unsuitable for immutable or wording-sensitive text (contracts, statutes, regulatory text, legal filings, safety-critical instructions, quotations); watermarking only part of a corpus costs audit evidence per answer; it targets editable text only, not tables, figures, images, audio, video or source code. It shifts trust rather than removing it: an authorized auditor must hold the provider keys and act honestly, governance (auditor independence, key custody, dispute resolution) is not studied, and embeddings remain vulnerable to inversion. The ethics statement adds that the same machinery could trace content a provider did not author, and that audit outcomes are statistical evidence, not proof.",
+      "status": 200,
+      "answer": "The provided passages from the Rent-a-RAG paper describe the watermarking approach and the auditing problem it addresses, but do not contain discussion of risks or limitations of the watermarking method itself.",
+      "confidence": 0.58,
+      "grounding": "insufficient_context",
+      "abstained": true,
+      "top_score": 0.7126,
+      "scores": [
+        0.7126,
+        0.6877,
+        0.671,
+        0.3188,
+        0.3171
+      ],
+      "documents": [
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf",
+        "acceptable-use-policy.md",
+        "acceptable-use-policy.md"
+      ],
+      "chunk_ids": [
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf#chunk-0",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf#chunk-11",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf#chunk-15",
+        "acceptable-use-policy.md#chunk-2",
+        "acceptable-use-policy.md#chunk-0"
+      ],
+      "top_document": "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf",
+      "expected_documents": [
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf"
+      ],
+      "expected_retrieved": true,
+      "expected_ranked_first": true,
+      "cited_count": 0,
+      "source_count": 5,
+      "behaviour_ok": false,
+      "components": {
+        "retrieval_strength": 0.7815,
+        "consensus": 0.7598,
+        "citation_coverage": 0.0
+      },
+      "style": "standard",
+      "latency_ms": 1446.5,
+      "generation_ms": 1180.0,
+      "input_tokens": 1551,
+      "output_tokens": 53,
+      "cost_usd": 0.001816,
+      "verification_verdict": null,
+      "verification_rounds": null,
+      "verification_ms": null,
+      "request_id": "28b6ca9f-f70e-4c3d-a744-e2e764806290"
+    },
+    {
+      "id": "LD2",
+      "question": "\u00bfQu\u00e9 riesgos o limitaciones del enfoque de marcas de agua identifica el art\u00edculo Rent-a-RAG?",
+      "expect": "answered",
+      "tests": "LONG DOCUMENT, CROSS-LINGUAL. Failure B: on 2026-09-08 this form abstained while the English form answered, because the constant per-document cap cut the passage the English answer cited. With the cap scaled to document length the Limitations chunks should survive the cross-lingual reordering and the answer should come back in Spanish.",
+      "correct_answer": "Same as LD1, answered in Spanish: requires a rewritable corpus and tolerates paraphrase, so not for wording-sensitive documents; text only, not multimodal content or code; trust is shifted to an honest key-holding auditor rather than removed; governance not addressed; embeddings vulnerable to inversion; outcomes are statistical evidence, not proof.",
+      "status": 200,
+      "answer": "The provided passages from the Rent-a-RAG paper describe the capabilities and performance of their watermarking approach (DirBucket), but do not explicitly identify risks or limitations of the embedding-space watermarking method itself. The passages focus on what the approach successfully handles (paraphrasing, stylistic variation, adversarial laundering) rather than its limitations.",
+      "confidence": 0.4,
+      "grounding": "insufficient_context",
+      "abstained": true,
+      "top_score": 0.56,
+      "scores": [
+        0.56,
+        0.5253,
+        0.5155,
+        0.3145,
+        0.2888
+      ],
+      "documents": [
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf",
+        "acceptable-use-policy.md",
+        "acceptable-use-policy.md"
+      ],
+      "chunk_ids": [
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf#chunk-0",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf#chunk-10",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf#chunk-11",
+        "acceptable-use-policy.md#chunk-0",
+        "acceptable-use-policy.md#chunk-2"
+      ],
+      "top_document": "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf",
+      "expected_documents": [
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf"
+      ],
+      "expected_retrieved": true,
+      "expected_ranked_first": true,
+      "cited_count": 0,
+      "source_count": 5,
+      "behaviour_ok": false,
+      "components": {
+        "retrieval_strength": 0.3999,
+        "consensus": 0.7872,
+        "citation_coverage": 0.0
+      },
+      "style": "standard",
+      "latency_ms": 2132.8,
+      "generation_ms": 1900.8,
+      "input_tokens": 1572,
+      "output_tokens": 88,
+      "cost_usd": 0.002012,
+      "verification_verdict": null,
+      "verification_rounds": null,
+      "verification_ms": null,
+      "request_id": "290717cf-a184-47a1-8bb4-dbe1912b4d85"
+    }
+  ]
+}

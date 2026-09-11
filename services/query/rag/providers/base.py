@@ -58,8 +58,22 @@ class ModelProvider(Protocol):
         """Return a unit-length vector for `text`."""
         ...
 
-    def generate(self, system: str, user: str, max_tokens: int, temperature: float) -> GenerationResult:
-        """Answer `user` under the constraints in `system`."""
+    def generate(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int,
+        temperature: float,
+        model: str | None = None,
+    ) -> GenerationResult:
+        """Answer `user` under the constraints in `system`.
+
+        `model` overrides the configured generation model for this one call. The
+        verification step wants a stronger (or simply different) model than the one that
+        wrote the answer, and it should get it through the same client, retries and error
+        translation rather than a second provider instance. None means the configured
+        default, so every existing caller is unaffected.
+        """
         ...
 
 

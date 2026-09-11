@@ -1,14 +1,21 @@
 # AWS-Native Knowledge Base Agent
 
+> **Reviewing this?** [**`SUBMISSION.md`**](SUBMISSION.md) is the 2–4 page explanation
+> the brief asks for — design, infrastructure, API contract, RAG behaviour, AI tool use
+> and one end-to-end run with evidence. This file is the deep reference behind it.
+
 A retrieval-augmented question-answering service: infrastructure defined in AWS CDK, an
 authenticated API on AWS, grounded answers with **verified** citations, and a local
 Streamlit client that talks to it with a bearer token.
 
 Built as a take-home from a reference prototype. The prototype ran everything in one
 Streamlit process on a laptop; this moves the retrieval, the prompting and the model access
-behind an authenticated API where they can be permissioned, logged and tested.
+behind an authenticated API where they can be permissioned, logged and tested. All nine of its
+concepts survive that move —
+[**how the prototype's concepts map into AWS**](#how-the-prototypes-concepts-map-into-aws)
+is the section the brief asks for by name.
 
-**Deployed and measured**, not just synthesized: 11 evaluation questions, 99 tests,
+**Deployed and measured**, not just synthesized: 11 evaluation questions, 250 tests,
 ~2.4 s p50 latency, ~$0.002 per query, ~$2.10/month of AWS cost against a $20 budget.
 
 ---
@@ -21,7 +28,21 @@ Prerequisites: Node 20+, Python 3.11+, AWS CLI configured, and an OpenRouter API
 npm run install:infra          # CDK dependencies
 npm run install:client         # Streamlit and requests
 
+npm --prefix infra exec -- cdk bootstrap        # once per account + region
 npm run deploy -- -c prefix=kbagent-<your-initials>
+```
+
+**`cdk bootstrap` is required once per account and region**, and is a no-op if that
+environment is already bootstrapped. The stack ships four Lambda assets and a bucket
+deployment, and CDK stages those through a bootstrap bucket — without it the deploy fails
+before creating anything. Add `--profile <name>` if you use named profiles.
+
+To read the infrastructure before committing an account to it, nothing here needs AWS
+credentials to *write*:
+
+```bash
+npm run synth -- -c prefix=kbagent-<your-initials>   # renders the template to infra/cdk.out/
+npm run diff  -- -c prefix=kbagent-<your-initials>   # what a deploy would change
 ```
 
 The first deploy **cannot** seed the knowledge base — CDK creates the provider key secret in
@@ -84,6 +105,8 @@ Only `prefix` is needed for a first deploy; the rest have working defaults.
 | `reservedConcurrency` | *unset* | Caps concurrent Lambda executions. **Opt-in on purpose**: a fresh AWS account has an account limit of 10, and reserving any of it fails the deploy. Set it in an account with real headroom. |
 | `cloudWatchRole` | `true` | Creates the account-level API Gateway logging role. Pass `-c cloudWatchRole=false` in a shared account where it already exists — it is an account-wide singleton, so two stacks both claiming it will collide. |
 | `expectedAccount` | *unset* | Refuses to deploy anywhere else. Worth setting once you have more than one account configured. |
+| `ORCHESTRATOR` *(branch)* | `langgraph` | `langgraph` or `loop`. Environment variable on the query function, not a CDK context flag. `loop` runs the same nodes without importing the framework at all, so the dependency's own cost — cold start, size — is a number rather than an argument. |
+| `VERIFY_ENABLED` *(branch)* | `true` | Turns the second reading off without redeploying, which is how the experiment separates the cost of packaging from the cost of verifying. |
 
 The stack declares no `env`, so the same commit deploys to whatever account and region the
 credentials point at. To use a second one, add a named profile and pass it through — every
@@ -117,7 +140,9 @@ flowchart LR
         S3["S3<br/>raw/ documents<br/>index/ vector artifact"]
         DDB["DynamoDB<br/>query log, TTL 30d"]
         OBS["CloudWatch + X-Ray<br/>logs, metrics, traces"]
-        IL["Ingest Lambda<br/>deploy-time only"]
+        DL["Documents Lambda<br/>list / delete / presign"]
+        SQS["SQS<br/>60s batching window"]
+        IL["Ingest Lambda<br/>deploy + on any raw/ change"]
     end
 
     subgraph EXT["Third party - OUTSIDE AWS"]
@@ -133,13 +158,26 @@ flowchart LR
     QL -->|"3 embed / 5 generate"| OR
     QL -->|"6 write log"| DDB
     QL --> OBS
-    IL -.->|"cdk deploy"| S3
+    ST -->|"GET/POST/DELETE /documents"| APIGW
+    APIGW --> DL
+    DL -->|"presign / list / delete"| S3
+    S3 -.->|"object created or removed"| SQS
+    SQS -.-> IL
+    IL -.->|"rebuild index/"| S3
     IL -.-> OR
 ```
 
-Full diagram, with the reasoning annotated on it:
-[Lucid](https://lucid.app/lucidchart/cb888b4a-c234-4912-90e3-05d8b2fe4895/view). The Mermaid
-above is the version-controlled copy; it renders on GitHub without leaving the repository.
+**Full diagram, with the reasoning annotated onto the canvas:
+[Lucid — Target Architecture](https://lucid.app/lucidchart/cb888b4a-c234-4912-90e3-05d8b2fe4895/view).**
+
+It carries what a box-and-arrow drawing normally leaves out: why there is no VPC (a NAT gateway
+at ~$32/month would exceed the entire budget on its own), why the Bedrock path is drawn but
+greyed out, what leaves AWS and what mitigates it, why there are two secrets, and the fact that
+`request_id` correlates four systems but **not** X-Ray, which indexes by its own trace id.
+
+The Mermaid above is the version-controlled copy — it renders on GitHub without leaving the
+repository. Both are kept in step: the documents Lambda, the presigned upload and the
+S3 → SQS → ingest re-index loop appear in both.
 
 ### The decisions worth explaining
 
@@ -333,13 +371,15 @@ express rather than merely filtered, and a parametrized test pins it.
 `index/*` and nothing else, under a rule written into the stack: *a query path that cannot
 corrupt the knowledge base is one less thing to reason about*. Deleting needs write access to
 `raw/`, so it went behind a separate function instead of widening the one that answers
-questions. Neither role can `PutObject` into `raw/` — this API can remove a document but
-cannot introduce one, so nothing here can put unreviewed content into the corpus. Three CDK
-assertions hold that line.
+questions. The query role has no write of any kind; the documents role writes, and **every
+write it can make is confined to `raw/`** — it cannot reach `index/`, so no authenticated
+call can corrupt or replace the knowledge base artifact itself. Three CDK assertions hold
+that line, including one that reads the synthesized template and fails if a `PutObject`
+resource ever names anything outside the prefix.
 
-There is no upload endpoint. API Gateway caps a request body at 10 MB, which a real document
-set outgrows immediately, so uploads belong on a presigned S3 URL — a different design, not a
-bigger version of this one.
+The upload endpoint never carries the file. API Gateway caps a request body at 10 MB, which a
+real document set outgrows immediately, so the API grants *permission* to upload and S3
+receives the bytes — the next section.
 
 ### `POST /documents`
 
@@ -468,14 +508,19 @@ appears to have been ignored, and nothing in the logs says why. One S3 HEAD per 
 per minute buys the guarantee that re-seeding actually takes effect. Set it to `0` to restore
 strict load-once behaviour.
 
-**Retrieval.** Exact cosine over all 52 chunks, top-k with a cap of 3 chunks per document so
-one long document cannot monopolise the context.
+**Retrieval.** Exact cosine over all 52 chunks, top-k with a per-document cap so one long
+document cannot monopolise the context. The cap is at least 3 chunks and scales with the
+document: `max(MAX_CHUNKS_PER_DOC, ceil(MAX_CHUNKS_PER_DOC_RATIO × chunks in the document))`,
+never more than `top_k`.
 
-That cap (`MAX_CHUNKS_PER_DOC`) suits this corpus, where three passages are most of what any
-document has to say, and it is what let the cross-document question in the evaluation see
-both of its sources. **It does not survive a corpus with one dominant document**: add a
-174-chunk paper and the same rule guarantees the model reads under 2% of the only document
-that can answer, with `top_k` powerless to change it. Raise it when you add long documents.
+A flat cap of 3 suits this corpus, where three passages are most of what any document has to
+say, and it is what let the cross-document question in the evaluation see both of its sources.
+**It does not survive a corpus with one dominant document**: add a 174-chunk paper and a flat
+rule guarantees the model reads under 2% of the only document that can answer, with `top_k`
+powerless to change it because the cap, not `top_k`, is what binds. The 5% term is the fix,
+chosen so the current corpus is untouched: the allowance stays exactly 3 for any document of
+60 chunks or fewer, so retrieval here is byte-identical to before, while the paper gets 9 of
+10 slots at `top_k` 10. Set `MAX_CHUNKS_PER_DOC_RATIO` to `0` to restore the flat cap.
 The measurement behind this is in [EVALUATION.md](EVALUATION.md). If the top score falls below
 `RELEVANCE_FLOOR`, the query **short-circuits to an abstention without calling the model** —
 saving both the cost and a second of latency.
@@ -496,6 +541,37 @@ asserts every registered style still carries them.
 This produced a result worth reading before dismissing the feature as cosmetic: **the simple
 style answers the evaluation's one wrong question correctly, 3 runs out of 3**, while the
 standard style gets it wrong 3 out of 3. See [EVALUATION.md](EVALUATION.md).
+
+### Experiment: answer verification (this branch only)
+
+`main` returns the first answer the model produces. This branch reads it back against its own
+cited passages before returning it, because the evaluation's one factually wrong answer had
+**perfect retrieval** — no chunker or retriever can reach that failure, and no similarity
+score can see it.
+
+```mermaid
+graph TD;
+  __start__([start]) --> retrieve
+  retrieve -.-> generate
+  retrieve -.-> abstain
+  generate -.-> verify
+  generate -.-> abstain
+  verify -.-> finalize
+  verify -.-> revise
+  revise --> generate
+  abstain --> __end__([end])
+  finalize --> __end__
+```
+
+The nodes are plain functions with **no framework import**; `graph.py` is the only file that
+imports LangGraph, and only when `ORCHESTRATOR=langgraph`. Setting `ORCHESTRATOR=loop` runs a
+`while` loop over the identical nodes and never loads the dependency — which is what makes
+"was the framework worth it" a measurement rather than an opinion.
+
+A failed verification pulls `grounding` to `low` and publishes its reasoning in
+`metadata.verification`. A deadline guard skips the pass rather than starting one it cannot
+finish, so it can never cause a timeout. Full reasoning, the probe results and the
+pre-registered decision rule: [ADR-0010](docs/adr/0010-verification-loop-langgraph.md).
 
 **Citation verification.** Every `[chunk_id]` the model emits is checked against what was
 actually retrieved. Invented citations are **stripped from the answer** and reported in
@@ -570,7 +646,8 @@ nothing else.
 ## Testing
 
 ```bash
-npm test          # 125 Python unit tests + 29 CDK assertions, no AWS credentials needed
+python -m pip install -r tests/requirements-dev.txt   # pytest, once
+npm test          # 218 Python unit tests + 32 CDK assertions, no AWS credentials needed
 ```
 
 The CDK tests are **security assertions, not functional ones**: they fail if the bucket loses
@@ -628,7 +705,7 @@ been classified as routine.
 |---|---|---|
 | **Identity** | Single bearer token, Secrets Manager, constant-time compare, 5-minute cache | Cognito or corporate IdP, JWT with short TTL, per-endpoint scopes, one principal per consumer, automatic rotation |
 | **Network** | Public HTTPS, stage throttling | WAF or a private API with a VPC endpoint |
-| **Retrieval** | Exact cosine in memory, ≲50k chunks | Bedrock Knowledge Bases with S3 Vectors, hybrid BM25 + vector, re-ranking, per-tenant metadata filters |
+| **Retrieval** | Exact cosine in memory, **~13,300 chunks** ([measured](docs/adr/0011-when-to-move-to-containers.md)) | Bedrock Knowledge Bases with S3 Vectors, hybrid BM25 + vector, re-ranking, per-tenant metadata filters |
 | **Data lifecycle** | Versioned documents, immutable index with `kb_version`, presigned-URL upload, list and delete, S3-event ingestion debounced through SQS, a corpus ceiling checked before embeddings are bought, drift reported by `GET /documents` | Incremental reindexing instead of a full rebuild on every change, index rollback, per-document versioning in the index itself, a virus scan between upload and ingest |
 | **Observability** | Structured logs, X-Ray, 4 EMF metrics, dashboard, 3 alarms, one `request_id` across five systems | SLOs with error budgets, composite alarms, anomaly detection, PagerDuty routing |
 | **Cost** | Stage throttling, `maxTokens` cap, abstention short-circuit, log TTLs, AWS Budgets | Per-tenant quotas, response caching, spend anomaly detection |
@@ -637,7 +714,81 @@ been classified as routine.
 
 ---
 
+## How the prototype's concepts map into AWS
+
+The brief calls this *the* important requirement: **"explain how the prototype concepts map
+into your AWS architecture."** It names nine concepts. **All nine are present.** None was
+dropped and none was quietly folded into another — what changed is *where each one runs, who
+is permitted to run it, and what bounds it*.
+
+| # | Prototype concept | Where it runs in AWS | What the move changed |
+|---|---|---|---|
+| 1 | **Document upload** | `POST /documents` (documents Lambda) issues a presigned S3 POST; the file goes client → S3 and never transits the API | The 10 MB API Gateway body limit stops being the cap on document size, and **S3 enforces** the 20 MB ceiling and the destination prefix instead of the client promising to |
+| 2 | **Document parsing** | `services/ingest/loaders.py`: Markdown split on its own heading structure, PDF through `pypdf` | Parsing runs behind an IAM role instead of on a laptop. The sample corpus resolves to **44 Markdown segments + 2 PDF page segments** |
+| 3 | **Chunking** | `services/ingest/splitter.py` — 800 characters, 120 of overlap, never crossing a parsed segment boundary | Chunk ids became **stable and addressable** (`enterprise-sla.md#chunk-2`). That is what makes a citation checkable and a retrieval bug reproducible |
+| 4 | **Embedding generation** | ingest Lambda → `openai/text-embedding-3-small` at 512 dimensions, batched, and **re-normalised locally whatever the provider returns** | Embeddings are bought once at ingest, never per query. `MAX_INDEX_CHUNKS` refuses an oversized corpus *before* spending on it |
+| 5 | **Vector search** | query Lambda: a gzipped JSON artifact from `index/`, loaded into memory at cold start, exact cosine in pure Python | FAISS-on-local-disk became a **versioned artifact with no server**. Retrieval costs **$0.00** and adds 3–5 ms |
+| 6 | **Answer generation** | query Lambda → `claude-haiku-4.5`, `temperature=0`, XML-escaped context, `style` chosen per request | The model key left the client machine for Secrets Manager, and the prompt became a server-side asset with tests instead of a string inside the UI |
+| 7 | **Source citations** | The model must emit `[doc#chunk-N]`; `extract_citations()` parses them back and **resolves each against the retrieved set** | A citation naming a passage the retriever never returned is discarded, not rendered. Citations stopped being decoration and became an input to the score |
+| 8 | **Confidence scoring** | `rag/confidence.py` — `0.50·retrieval_strength + 0.25·consensus + 0.25·citation_coverage` | Below `RELEVANCE_FLOOR` the system **abstains** rather than scoring a guess. The prototype's keyword-match term was deliberately removed |
+| 9 | **Streamlit-style interaction** | `client/streamlit_app.py` on the reviewer's laptop — HTTP and rendering only | The UI kept its shape and lost its privileges: a bearer token, no model key, no AWS credentials, no retrieval logic |
+
+### The four that were decisions, not relocations
+
+**Upload (1) is the concept the brief marks optional**, and it was treated that way: *"document
+ingestion, document management, and user upload workflows are optional extensions and should
+not be prioritized over the core API, CDK, and Streamlit-to-AWS flow."* It was built only after
+the query path was deployed, evaluated and measured. It is here because the prototype's file
+picker hid a contract worth making explicit — **the API grants permission to upload; it does
+not carry bytes.** The presigned POST fixes the destination key and rides a
+`content-length-range` condition, so the size limit is enforced by the service receiving the
+file rather than by the code asking politely.
+
+**The index (5) changed the most.** In the prototype "the index" was a file beside a running
+process: alive as long as the process, invisible to anything else, and rebuilt by restarting.
+Here it is an immutable S3 object with a `kb_version` and an ETag. That buys two properties the
+prototype could not have had. A query Lambda granted `index/*` read **and nothing else** cannot
+corrupt the corpus no matter what a question contains. And a deletion has a stated deadline
+instead of a hope: the artifact is rebuilt within seconds, and the query path notices within
+`INDEX_REFRESH_SECONDS` because it re-checks the ETag rather than trusting its cache forever —
+a bug this project shipped once, measured at 54 seconds of stale answers, and fixed.
+
+**Citations (7) became checkable, which is what promoted them into the score.** In the
+prototype a citation was a string the model produced and the UI displayed; nothing compared it
+to what retrieval actually returned. Parsing them back and intersecting with the retrieved set
+turns "the model said it used the docs" into "the model used two of the five passages we gave
+it", and that number is 25% of the confidence.
+
+**Confidence (8) is the one place the mapping is deliberately *unfaithful*.** The prototype
+weighted 10% on keyword overlap between question and answer. That term rewards an answer for
+echoing the question's vocabulary, which is a property of phrasing rather than of grounding —
+it would raise confidence on a fluent, wrong answer. It was replaced with citation coverage.
+`RELEVANCE_FLOOR` and `CONFIDENCE_CEIL` are defaults in `rag/config.py`, overridable by
+environment variable but not set by the stack today, so the deployed values are the code's.
+
+### What did not survive the move
+
+- **Conversation memory.** The prototype persisted conversations in MongoDB Atlas. The
+  DynamoDB query log looks like its successor and is not: **nothing ever reads it.** There is
+  no `get_item`, `query` or `scan` against that table anywhere in the codebase — it is a
+  one-way audit and cost trail with a 30-day TTL. **Every question is independent**, with no
+  multi-turn context. The brief lists conversation memory among *optional* components, so this
+  is a scope decision rather than an oversight, but the table above should not be read as
+  smuggling it in.
+- **Non-text formats beyond PDF.** The client offers `pdf`, `md`, `markdown` and `txt`. A DOCX
+  loader is roughly fifteen lines and one dependency confined to the ingest Lambda; it is
+  absent because nothing in the sample corpus required it.
+
+And one component has **no prototype ancestor at all**: the Lambda authorizer. The prototype
+had no authentication, so nothing in it maps to `services/authorizer/`. It exists because the
+brief requires an authenticated API, and it is described under [Security](#security-and-secrets).
+
+---
+
 ## Changes from the reference prototype
+
+The section above maps the *concepts*; this one records the *technology swaps* underneath them,
+one row per decision.
 
 | Prototype | Here | Why |
 |---|---|---|
@@ -750,13 +901,13 @@ for a whole month costs about **$2**.
 ## Repository map
 
 ```
-infra/          CDK: one stack, four constructs, 24 security assertions
+infra/          CDK: one stack, four constructs, 32 assertions
 services/       Four Lambdas -- query, documents, ingest, authorizer. Query has zero dependencies
 client/         Streamlit: HTTP and render only. `theme.py` holds the design system
                 and both palettes (light / dark / system)
 sample-docs/    Eight business documents, including one PDF
 scripts/        Probe, seed, smoke test, evaluate, configure, build
-tests/          125 unit tests, no AWS needed
+tests/          218 unit tests, no AWS needed
 docs/adr/       Architecture decision records
 EVALUATION.md   Evaluation results, calibration data, and the failure analysis
 ```

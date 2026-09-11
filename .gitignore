@@ -28,8 +28,9 @@ venv/
 .coverage
 htmlcov/
 
-# Vendored Lambda dependencies are built by scripts/build_lambda_deps.ps1, not committed.
+# Vendored Lambda dependencies are built by scripts/build_lambda_deps.py, not committed.
 services/ingest/vendor/
+services/query/vendor/
 
 # ------------------------------------------------------------------------------- IDE
 .idea/

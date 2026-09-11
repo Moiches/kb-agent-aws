@@ -1,0 +1,48 @@
+{
+  "_about": [
+    "Long-document questions for the knowledge base agent: the pair that exposed failure B.",
+    "",
+    "Run with `python scripts/eval_run.py --stack <stack> --questions evaluation/questions-longdoc.json`",
+    "after copying test_documents/Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf into the",
+    "bucket's raw/ prefix and waiting for GET /documents to report the index in sync. The pair is",
+    "one question in English and in Spanish. On 2026-09-08 the English form answered and the",
+    "Spanish form abstained, because the per-document cap (then a constant 3) cut the one decisive",
+    "passage that the cross-lingual score shift had pushed to fourth place inside the paper. The",
+    "scaled cap is what these two measure; both should answer, and the retrieved set should hold",
+    "the paper's Limitations passages.",
+    "",
+    "Provenance, because the wording is not the original. The 2026-09-08 pair was recovered",
+    "verbatim from the kbagent-mc-dev query log: 'What risks does the paper identify when using",
+    "ChatGPT for statistical analysis?' and '¿Qué riesgos identifica el paper al usar ChatGPT",
+    "para análisis estadístico?', asked against 'Statistics in Medicine - 2025 - Dobler - ChatGPT",
+    "as a Tool for Biostatisticians  A Tutorial on Applications  Opportunities.pdf' (174 chunks).",
+    "That PDF is no longer in the bucket or on disk, so the pair is re-pointed at the paper that",
+    "is: the same shape of question (risks and limitations of the paper's own method, one dense",
+    "subject, answered from a single Limitations section -- chunk-62 and chunk-63 through the",
+    "ingest splitter, 181 chunks in all) against a different document. The chunk numbers in",
+    "EVALUATION.md's failure-B table belong to the Dobler paper and will not reappear here; what",
+    "should reappear is the behaviour.",
+    "",
+    "`expect` is what should happen, not what does. Where the two differ, the difference is",
+    "the finding."
+  ],
+
+  "questions": [
+    {
+      "id": "LD1",
+      "question": "What risks or limitations of the watermarking approach does the Rent-a-RAG paper identify?",
+      "expect_documents": ["Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf"],
+      "expect": "answered",
+      "tests": "LONG DOCUMENT, English. 181 chunks on one subject; the answer lives in one Limitations section. This is the control for LD2: the English form answered on 2026-09-08 against the original paper.",
+      "correct_answer": "The method needs a provider that can rewrite its corpus before deployment and accept meaning-preserving paraphrase, so it is unsuitable for immutable or wording-sensitive text (contracts, statutes, regulatory text, legal filings, safety-critical instructions, quotations); watermarking only part of a corpus costs audit evidence per answer; it targets editable text only, not tables, figures, images, audio, video or source code. It shifts trust rather than removing it: an authorized auditor must hold the provider keys and act honestly, governance (auditor independence, key custody, dispute resolution) is not studied, and embeddings remain vulnerable to inversion. The ethics statement adds that the same machinery could trace content a provider did not author, and that audit outcomes are statistical evidence, not proof."
+    },
+    {
+      "id": "LD2",
+      "question": "¿Qué riesgos o limitaciones del enfoque de marcas de agua identifica el artículo Rent-a-RAG?",
+      "expect_documents": ["Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf"],
+      "expect": "answered",
+      "tests": "LONG DOCUMENT, CROSS-LINGUAL. Failure B: on 2026-09-08 this form abstained while the English form answered, because the constant per-document cap cut the passage the English answer cited. With the cap scaled to document length the Limitations chunks should survive the cross-lingual reordering and the answer should come back in Spanish.",
+      "correct_answer": "Same as LD1, answered in Spanish: requires a rewritable corpus and tolerates paraphrase, so not for wording-sensitive documents; text only, not multimodal content or code; trust is shifted to an honest key-holding auditor rather than removed; governance not addressed; embeddings vulnerable to inversion; outcomes are statistical evidence, not proof."
+    }
+  ]
+}

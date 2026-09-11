@@ -1,0 +1,128 @@
+{
+  "summary": {
+    "count": 2,
+    "behaviour_pass": 0,
+    "total_cost": 0.005246,
+    "median_latency": 2597.8,
+    "questions": "questions-longdoc.json",
+    "style": "standard"
+  },
+  "results": [
+    {
+      "id": "LD1",
+      "question": "What risks or limitations of the watermarking approach does the Rent-a-RAG paper identify?",
+      "expect": "answered",
+      "tests": "LONG DOCUMENT, English. 181 chunks on one subject; the answer lives in one Limitations section. This is the control for LD2: the English form answered on 2026-09-08 against the original paper.",
+      "correct_answer": "The method needs a provider that can rewrite its corpus before deployment and accept meaning-preserving paraphrase, so it is unsuitable for immutable or wording-sensitive text (contracts, statutes, regulatory text, legal filings, safety-critical instructions, quotations); watermarking only part of a corpus costs audit evidence per answer; it targets editable text only, not tables, figures, images, audio, video or source code. It shifts trust rather than removing it: an authorized auditor must hold the provider keys and act honestly, governance (auditor independence, key custody, dispute resolution) is not studied, and embeddings remain vulnerable to inversion. The ethics statement adds that the same machinery could trace content a provider did not author, and that audit outcomes are statistical evidence, not proof.",
+      "status": 200,
+      "answer": "The provided passages describe the problem that Rent-a-RAG addresses and why existing watermarking approaches are unsuitable for third-party RAG, but they do not contain discussion of risks or limitations specific to the Rent-a-RAG watermarking approach itself.\n\nThe passages explain that existing generation-time watermarks fail in third-party RAG because operators paraphrase outputs and control their own models [Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf#chunk-11], and that Rent-a-RAG's approach must handle paraphrasing, cross-provider mixing, and non-cooperative operators [Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf#chunk-7], but they do not evaluate limitations of the proposed solution itself.",
+      "confidence": 0.63,
+      "grounding": "insufficient_context",
+      "abstained": true,
+      "top_score": 0.7126,
+      "scores": [
+        0.7126,
+        0.6877,
+        0.671,
+        0.6695,
+        0.6561
+      ],
+      "documents": [
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf"
+      ],
+      "chunk_ids": [
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf#chunk-0",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf#chunk-11",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf#chunk-15",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf#chunk-12",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf#chunk-7"
+      ],
+      "top_document": "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf",
+      "expected_documents": [
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf"
+      ],
+      "expected_retrieved": true,
+      "expected_ranked_first": true,
+      "cited_count": 0,
+      "source_count": 5,
+      "behaviour_ok": false,
+      "components": {
+        "retrieval_strength": 0.7815,
+        "consensus": 0.9534,
+        "citation_coverage": 0.0
+      },
+      "style": "standard",
+      "latency_ms": 2777.5,
+      "generation_ms": 2529.1,
+      "input_tokens": 1911,
+      "output_tokens": 196,
+      "cost_usd": 0.002891,
+      "verification_verdict": null,
+      "verification_rounds": null,
+      "verification_ms": null,
+      "request_id": "40498443-34d4-48d5-aed3-b5880a9412b7"
+    },
+    {
+      "id": "LD2",
+      "question": "\u00bfQu\u00e9 riesgos o limitaciones del enfoque de marcas de agua identifica el art\u00edculo Rent-a-RAG?",
+      "expect": "answered",
+      "tests": "LONG DOCUMENT, CROSS-LINGUAL. Failure B: on 2026-09-08 this form abstained while the English form answered, because the constant per-document cap cut the passage the English answer cited. With the cap scaled to document length the Limitations chunks should survive the cross-lingual reordering and the answer should come back in Spanish.",
+      "correct_answer": "Same as LD1, answered in Spanish: requires a rewritable corpus and tolerates paraphrase, so not for wording-sensitive documents; text only, not multimodal content or code; trust is shifted to an honest key-holding auditor rather than removed; governance not addressed; embeddings vulnerable to inversion; outcomes are statistical evidence, not proof.",
+      "status": 200,
+      "answer": "El contexto proporcionado solo menciona limitaciones espec\u00edficas del m\u00e9todo DirBucket (no es adecuado para documentos inmutables o sensibles al texto exacto como contratos, estatutos o citas), pero no contiene una discusi\u00f3n completa de los riesgos o limitaciones generales del enfoque de marcas de agua en RAG que el art\u00edculo pueda identificar.",
+      "confidence": 0.43,
+      "grounding": "insufficient_context",
+      "abstained": true,
+      "top_score": 0.5599,
+      "scores": [
+        0.5599,
+        0.5253,
+        0.5155,
+        0.5029,
+        0.499
+      ],
+      "documents": [
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf"
+      ],
+      "chunk_ids": [
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf#chunk-0",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf#chunk-10",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf#chunk-11",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf#chunk-62",
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf#chunk-15"
+      ],
+      "top_document": "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf",
+      "expected_documents": [
+        "Rent-a-RAG_Embedding-Space_Watermarks_for_Auditing.pdf"
+      ],
+      "expected_retrieved": true,
+      "expected_ranked_first": true,
+      "cited_count": 0,
+      "source_count": 5,
+      "behaviour_ok": false,
+      "components": {
+        "retrieval_strength": 0.3998,
+        "consensus": 0.9296,
+        "citation_coverage": 0.0
+      },
+      "style": "standard",
+      "latency_ms": 2418.1,
+      "generation_ms": 2080.1,
+      "input_tokens": 1855,
+      "output_tokens": 100,
+      "cost_usd": 0.002355,
+      "verification_verdict": null,
+      "verification_rounds": null,
+      "verification_ms": null,
+      "request_id": "6f813d5d-c2b1-4472-82c2-7c6b57a56eee"
+    }
+  ]
+}

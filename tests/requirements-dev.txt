@@ -1,0 +1,15 @@
+# Developer-venv dependencies for the unit tests. Windows (or whatever the developer runs)
+# wheels, installed with `python -m pip install -r tests/requirements-dev.txt`.
+#
+# These are NOT what the Lambda ships. The query function vendors a manylinux closure of
+# the same pins into services/query/vendor/ (scripts/build_lambda_deps.py), which the local
+# interpreter cannot import -- its extension modules are Linux .so files. The two installs
+# share their version pins so that tests/test_graph.py exercises the code the Lambda runs,
+# and nothing else.
+#
+# langgraph is optional at runtime: rag/graph.py is the only module that imports it, and
+# tests/test_graph.py skips itself when it is absent. Everything else in the suite runs on
+# the standard library plus pytest.
+langgraph==1.2.11
+langchain-core==1.6.2
+pytest

@@ -24,9 +24,11 @@ Two ideas shape the API:
     the query path answered from the old one for 54 more. A 200 would claim something that
     is not true yet for most of a minute.
 
-There is no upload endpoint. API Gateway caps a request body at 10 MB, which a real document
-set outgrows immediately, so uploads belong on a presigned S3 URL -- a different design, not
-a bigger version of this one.
+The upload endpoint never carries the file. API Gateway caps a request body at 10 MB, which
+a real document set outgrows immediately, so `create_upload` returns a presigned S3 POST and
+the bytes go straight to the bucket. The size ceiling rides on the signature as a
+`content-length-range` condition, which means S3 rejects an oversized body -- a limit the
+client owns is a suggestion.
 """
 
 from __future__ import annotations

@@ -17,17 +17,28 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import sys
+import time
 import uuid
+from pathlib import Path
+
+# The vendored Linux wheels for the orchestration layer, APPENDED rather than prepended.
+# Two reasons, both verified rather than assumed. On Lambda, sys.path already carries
+# /var/runtime's boto3, botocore and urllib3; appending keeps those ahead of the copies pip
+# dragged in behind langsmith, so the runtime's own AWS client is the one that runs. Locally
+# the directory holds cpython-312-x86_64-linux-gnu binaries that a Windows interpreter
+# cannot load at all, so appending lets the developer venv's own wheels win under pytest.
+# The ingest Lambda prepends for pypdf, which is pure Python and has no such conflict; the
+# divergence is deliberate.
+sys.path.append(str(Path(__file__).resolve().parent / "vendor"))
 
 import boto3
 
-from rag import config, index_store
-from rag.confidence import compute_confidence, grounding_label, verify_citations
+from rag import config, index_store, nodes
+from rag.confidence import compute_confidence, grounding_label
 from rag.models import ApiError, QueryRequest, Source
 from rag.observability import Timer, emit_metrics, log, log_error, set_correlation_id
-from rag.prompt import INSUFFICIENT_SENTINEL, build_user_message, system_prompt
 from rag.providers import ErrorKind, ProviderError, get_provider
-from rag.retriever import VectorStore
 
 SERVICE_VERSION = config.SERVICE_VERSION
 
@@ -50,7 +61,7 @@ _ERROR_STATUS: dict[ErrorKind, tuple[int, str]] = {
 }
 
 
-def lambda_handler(event, context):  # noqa: ARG001
+def lambda_handler(event, context):
     request_id = _request_id(event)
     set_correlation_id(request_id)
 
@@ -61,7 +72,7 @@ def lambda_handler(event, context):  # noqa: ARG001
         if method == "GET" and path.endswith("/health"):
             return _respond(200, health(), request_id)
         if method == "POST" and path.endswith("/query"):
-            return _respond(200, query(event, request_id), request_id)
+            return _respond(200, query(event, request_id, _deadline_at(context)), request_id)
         raise ApiError(404, "not_found", f"No route for {method} {path}")
     except ProviderError as exc:
         api_error = provider_error_to_api_error(exc)
@@ -100,6 +111,11 @@ def health() -> dict:
         "provider": config.MODEL_PROVIDER,
         "model": config.MODEL_ID,
         "embedding_model": config.EMBED_MODEL_ID,
+        # Which runner and whether the second reading is on. Reported because the experiment
+        # toggles both by environment variable on one deployment, and a result is only
+        # attributable if the configuration that produced it can be read back.
+        "orchestrator": config.ORCHESTRATOR,
+        "verification_enabled": config.VERIFY_ENABLED,
     }
     try:
         kb = index_store.load(config.KB_BUCKET, config.KB_INDEX_KEY)
@@ -122,7 +138,7 @@ def health() -> dict:
 # -------------------------------------------------------------------------------- query
 
 
-def query(event: dict, request_id: str) -> dict:
+def query(event: dict, request_id: str, deadline_at: float | None = None) -> dict:
     request = _parse_request(event)
 
     try:
@@ -143,70 +159,114 @@ def query(event: dict, request_id: str) -> dict:
         config.EMBED_DIMENSIONS,
     )
 
-    with Timer() as retrieval_timer:
-        question_vector = provider.embed(request.question)
-        hits = VectorStore(kb.chunks).search(
-            question_vector,
-            top_k=request.top_k,
-            max_per_document=config.MAX_CHUNKS_PER_DOC,
-        )
+    # Retrieval, generation and verification now live in `rag.nodes` as plain functions
+    # over one state dict, so the two runners below drive identical code. The handler's job
+    # narrows to what it was always best at: parse, load, hand off, shape the response.
+    state = nodes.QueryState(
+        question=request.question,
+        top_k=request.top_k,
+        style=request.style,
+        request_id=request_id,
+        provider=provider,
+        kb=kb,
+    )
+    if deadline_at is not None:
+        state["deadline_at"] = deadline_at
 
-    scores = [hit.score for hit in hits]
-    top_score = scores[0] if scores else 0.0
+    state = _orchestrator()(state)
 
-    # Short circuit. Nothing similar enough was found, so there is no point paying for a
-    # generation that would either hedge or invent. Saves the call and the latency.
-    if top_score < config.RELEVANCE_FLOOR:
+    hits, scores = state["hits"], state["scores"]
+    top_score = state.get("top_score", 0.0)
+
+    if state.get("abstain_reason"):
         return _abstention(
             request, request_id, provider, kb, hits, scores,
-            reason="top_score_below_floor",
-            retrieval_ms=retrieval_timer.ms,
+            reason=state["abstain_reason"],
+            retrieval_ms=state.get("retrieval_ms", 0.0),
+            generation_ms=state.get("generation_ms", 0.0),
+            result=state.get("result"),
+            answer=state.get("answer"),
         )
 
-    with Timer() as generation_timer:
-        result = provider.generate(
-            system=system_prompt(request.style),
-            user=build_user_message(request.question, hits),
-            max_tokens=config.MAX_OUTPUT_TOKENS,
-            temperature=config.TEMPERATURE,
-        )
-
+    cited, dropped = state.get("cited", []), state.get("dropped", [])
     retrieved_ids = [hit.chunk.chunk_id for hit in hits]
-    answer, cited, dropped = verify_citations(result.text, set(retrieved_ids))
-
-    if answer.startswith(INSUFFICIENT_SENTINEL):
-        return _abstention(
-            request, request_id, provider, kb, hits, scores,
-            reason="model_reported_insufficient_context",
-            retrieval_ms=retrieval_timer.ms,
-            generation_ms=generation_timer.ms,
-            result=result,
-            answer=answer[len(INSUFFICIENT_SENTINEL) :].strip() or None,
-        )
-
     confidence, components = compute_confidence(
         scores, cited, retrieved_ids, floor=config.RELEVANCE_FLOOR, ceil=config.CONFIDENCE_CEIL
     )
-    grounding = grounding_label(confidence, top_score, floor=config.RELEVANCE_FLOOR, abstained=False)
+    verdict = state.get("verdict")
+    grounding = grounding_label(
+        confidence, top_score, floor=config.RELEVANCE_FLOOR, abstained=False, verdict=verdict
+    )
     sources = _sources(hits, cited)
 
     response = {
-        "answer": answer,
+        "answer": state["answer"],
         "confidence": confidence,
         "grounding": grounding,
         "sources": [source.to_dict() for source in sources],
         "metadata": _metadata(
-            request, request_id, provider, kb, result=result,
-            retrieval_ms=retrieval_timer.ms, generation_ms=generation_timer.ms,
+            request, request_id, provider, kb, result=state.get("result"),
+            retrieval_ms=state.get("retrieval_ms", 0.0),
+            generation_ms=state.get("generation_ms", 0.0),
             chunks_searched=kb.chunk_count,
             confidence_components=components,
             dropped_citations=dropped,
             top_score=top_score,
+            calls=state.get("calls"),
+            extra={"verification": _verification_metadata(state)},
         ),
     }
 
     _record(request, response, top_score)
     return response
+
+
+def _orchestrator():
+    """The graph or the plain loop, chosen at call time by `ORCHESTRATOR`.
+
+    The import of `graph` is deliberately inside the branch. With `ORCHESTRATOR=loop`
+    nothing in this process imports langgraph, which is what turns "was the framework worth
+    it" into a measurement: the same deployment, the same nodes, the same calls, with the
+    dependency loaded or not. It is also the escape hatch if the vendored closure ever fails
+    to import on a runtime upgrade -- one environment variable and the system still answers.
+    """
+    if config.ORCHESTRATOR == "loop":
+        return nodes.run_loop
+    from rag import graph
+
+    return graph.run
+
+
+def _verification_metadata(state: dict) -> dict:
+    """What the second reading concluded, reported whether or not it ran.
+
+    `skipped` and `unverified` are states worth publishing rather than hiding behind a
+    missing key: the first says the pass was disabled or ran out of time, the second that
+    the checker answered in a shape that could not be parsed. Silently omitting either
+    would make an unchecked answer indistinguishable from a checked one.
+    """
+    return {
+        "verdict": state.get("verdict", "skipped"),
+        "issue": state.get("issue", ""),
+        "rounds": state.get("rounds", 0),
+        "claims_checked": state.get("claims_checked", 0),
+        "failed_claims": state.get("failed_claims", []),
+        "verification_ms": round(state.get("verification_ms", 0.0), 1),
+        "model": state.get("verify_model", ""),
+    }
+
+
+def _deadline_at(context) -> float | None:
+    """When this invocation must be finished, on the same clock the nodes read.
+
+    Reserving `VERIFY_DEADLINE_RESERVE_MS` is what stops a verification round from being
+    the reason a request 504s: the nodes skip the pass rather than start one they cannot
+    finish. `context` is None under local tests, where there is no deadline to respect.
+    """
+    remaining = getattr(context, "get_remaining_time_in_millis", None)
+    if remaining is None:
+        return None
+    return time.monotonic() + max(0.0, (remaining() - config.VERIFY_DEADLINE_RESERVE_MS) / 1000.0)
 
 
 def _abstention(request, request_id, provider, kb, hits, scores, *, reason,
@@ -276,9 +336,18 @@ def _sources(hits, cited: list[str]) -> list[Source]:
 
 
 def _metadata(request, request_id, provider, kb, *, result, retrieval_ms, generation_ms,
-              chunks_searched, confidence_components, dropped_citations, top_score=0.0, extra=None) -> dict:
-    input_tokens = result.input_tokens if result else 0
-    output_tokens = result.output_tokens if result else 0
+              chunks_searched, confidence_components, dropped_citations, top_score=0.0,
+              calls=None, extra=None) -> dict:
+    # Tokens are summed over every model call the request made, not taken from the last one.
+    # A verified answer costs a generation plus a check, and a revised one costs two of each;
+    # reporting only the final generation would understate the bill by half or more, and
+    # `estimated_cost_usd` exists precisely to be trusted against a $20 ceiling.
+    if calls:
+        input_tokens = sum(c.get("input_tokens", 0) for c in calls)
+        output_tokens = sum(c.get("output_tokens", 0) for c in calls)
+    else:
+        input_tokens = result.input_tokens if result else 0
+        output_tokens = result.output_tokens if result else 0
     metadata = {
         "provider": provider.name,
         "model": result.model if result else provider.generation_model,

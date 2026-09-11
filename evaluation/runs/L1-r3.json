@@ -1,0 +1,632 @@
+{
+  "summary": {
+    "count": 11,
+    "behaviour_pass": 11,
+    "total_cost": 0.04553600000000001,
+    "median_latency": 2565.4,
+    "questions": "questions.json",
+    "style": "standard"
+  },
+  "results": [
+    {
+      "id": "Q1",
+      "question": "How long does an Enterprise customer have to request a refund?",
+      "expect": "answered",
+      "tests": "Direct factual lookup. This is the example question from the project brief itself.",
+      "correct_answer": "30 days from the invoice date.",
+      "status": 200,
+      "answer": "Enterprise customers have **30 days from the invoice date** to request a refund [refund-and-cancellation-policy.md#chunk-1]. Requests submitted after this 30-day window are not eligible for a refund, regardless of usage level.",
+      "confidence": 0.67,
+      "grounding": "medium",
+      "abstained": false,
+      "top_score": 0.6793,
+      "scores": [
+        0.6793,
+        0.5461,
+        0.5098,
+        0.4656,
+        0.4109
+      ],
+      "documents": [
+        "refund-and-cancellation-policy.md",
+        "refund-and-cancellation-policy.md",
+        "refund-and-cancellation-policy.md",
+        "security-and-data-handling.md",
+        "enterprise-sla.md"
+      ],
+      "chunk_ids": [
+        "refund-and-cancellation-policy.md#chunk-1",
+        "refund-and-cancellation-policy.md#chunk-0",
+        "refund-and-cancellation-policy.md#chunk-3",
+        "security-and-data-handling.md#chunk-3",
+        "enterprise-sla.md#chunk-2"
+      ],
+      "top_document": "refund-and-cancellation-policy.md",
+      "expected_documents": [
+        "refund-and-cancellation-policy.md"
+      ],
+      "expected_retrieved": true,
+      "expected_ranked_first": true,
+      "cited_count": 1,
+      "source_count": 5,
+      "behaviour_ok": true,
+      "components": {
+        "retrieval_strength": 0.6982,
+        "consensus": 0.769,
+        "citation_coverage": 0.5
+      },
+      "style": "standard",
+      "latency_ms": 1593.1,
+      "generation_ms": 1405.4,
+      "input_tokens": 1709,
+      "output_tokens": 274,
+      "cost_usd": 0.003079,
+      "verification_verdict": "pass",
+      "verification_rounds": 0,
+      "verification_ms": 1669.2,
+      "request_id": "9cf5d792-483a-4b86-9e22-a6f96522f92e"
+    },
+    {
+      "id": "Q2",
+      "question": "What service credit applies if uptime drops to 99.0%?",
+      "expect": "answered",
+      "tests": "Retrieval over a table, plus a boundary condition: 99.0% falls in the FIRST row ('below 99.9% but at or above 99.0%'), not the second.",
+      "correct_answer": "10% of the monthly fee.",
+      "status": 200,
+      "answer": "If monthly uptime drops to 99.0%, a **10% service credit** applies against the next invoice [enterprise-sla.md#chunk-2]. The credit table specifies \"Below 99.9% but at or above 99.0%\" qualifies for this 10% credit. Note that service credits are applied against future invoices and are never paid out in cash [enterprise-sla.md#chunk-2].",
+      "confidence": 0.75,
+      "grounding": "high",
+      "abstained": false,
+      "top_score": 0.7527,
+      "scores": [
+        0.7527,
+        0.5548,
+        0.5508,
+        0.5033,
+        0.4291
+      ],
+      "documents": [
+        "enterprise-sla.md",
+        "enterprise-sla.md",
+        "enterprise-sla.md",
+        "pricing-and-plans.md",
+        "acceptable-use-policy.md"
+      ],
+      "chunk_ids": [
+        "enterprise-sla.md#chunk-2",
+        "enterprise-sla.md#chunk-0",
+        "enterprise-sla.md#chunk-4",
+        "pricing-and-plans.md#chunk-2",
+        "acceptable-use-policy.md#chunk-3"
+      ],
+      "top_document": "enterprise-sla.md",
+      "expected_documents": [
+        "enterprise-sla.md"
+      ],
+      "expected_retrieved": true,
+      "expected_ranked_first": true,
+      "cited_count": 1,
+      "source_count": 5,
+      "behaviour_ok": true,
+      "components": {
+        "retrieval_strength": 0.8818,
+        "consensus": 0.7415,
+        "citation_coverage": 0.5
+      },
+      "style": "standard",
+      "latency_ms": 4255.1,
+      "generation_ms": 4068.8999999999996,
+      "input_tokens": 3392,
+      "output_tokens": 703,
+      "cost_usd": 0.006907,
+      "verification_verdict": "pass",
+      "verification_rounds": 1,
+      "verification_ms": 4289.2,
+      "request_id": "7c370b86-524c-4d39-8219-0b9886eaa7b4"
+    },
+    {
+      "id": "Q3",
+      "question": "Where is customer data stored, and is it encrypted at rest?",
+      "expect": "answered",
+      "tests": "Compound question requiring two facts from one document.",
+      "correct_answer": "US (us-east-1) or EU (eu-west-1), chosen at account creation; encrypted at rest with AES-256.",
+      "status": 200,
+      "answer": "Customer data is stored in one of two AWS regions selected at account creation [security-and-data-handling.md#chunk-1]:\n- **US**: data in `us-east-1` with backups replicated to `us-west-2`\n- **EU**: data in `eu-west-1` with backups replicated to `eu-central-1`\n\nYes, all customer data is encrypted at rest using AES-256, with encryption keys managed by the cloud provider's key management service and rotated annually [security-and-data-handling.md#chunk-0]. Database backups are encrypted with the same key hierarchy as the primary store [security-and-data-handling.md#chunk-0].",
+      "confidence": 0.86,
+      "grounding": "high",
+      "abstained": false,
+      "top_score": 0.7416,
+      "scores": [
+        0.7416,
+        0.5396,
+        0.506,
+        0.4457,
+        0.4214
+      ],
+      "documents": [
+        "security-and-data-handling.md",
+        "security-and-data-handling.md",
+        "security-and-data-handling.md",
+        "acceptable-use-policy.md",
+        "remote-work-policy.pdf"
+      ],
+      "chunk_ids": [
+        "security-and-data-handling.md#chunk-0",
+        "security-and-data-handling.md#chunk-1",
+        "security-and-data-handling.md#chunk-3",
+        "acceptable-use-policy.md#chunk-4",
+        "remote-work-policy.pdf#chunk-3"
+      ],
+      "top_document": "security-and-data-handling.md",
+      "expected_documents": [
+        "security-and-data-handling.md"
+      ],
+      "expected_retrieved": true,
+      "expected_ranked_first": true,
+      "cited_count": 2,
+      "source_count": 5,
+      "behaviour_ok": true,
+      "components": {
+        "retrieval_strength": 0.8539,
+        "consensus": 0.7159,
+        "citation_coverage": 1.0
+      },
+      "style": "standard",
+      "latency_ms": 2565.4,
+      "generation_ms": 2291.8,
+      "input_tokens": 1693,
+      "output_tokens": 562,
+      "cost_usd": 0.004503,
+      "verification_verdict": "unverified",
+      "verification_rounds": 0,
+      "verification_ms": 2543.1,
+      "request_id": "d9927b5e-1e82-44b4-94cb-8de3c69239b5"
+    },
+    {
+      "id": "Q4",
+      "question": "What is the response time for a Severity 1 incident?",
+      "expect": "answered",
+      "tests": "The same fact appears in two documents with different wording. Does retrieval surface both?",
+      "correct_answer": "15 minutes initial response, 24x7.",
+      "status": 200,
+      "answer": "The target first response time for a Severity 1 incident is **15 minutes** [support-escalation-runbook.md#chunk-1], and it must be handled around the clock [support-escalation-runbook.md#chunk-1]. \n\nFor enterprise customers, the target resolution time for S1 is **4 hours** [enterprise-sla.md#chunk-1].",
+      "confidence": 0.86,
+      "grounding": "high",
+      "abstained": false,
+      "top_score": 0.7258,
+      "scores": [
+        0.7258,
+        0.6929,
+        0.5131,
+        0.4942,
+        0.4614
+      ],
+      "documents": [
+        "support-escalation-runbook.md",
+        "enterprise-sla.md",
+        "support-escalation-runbook.md",
+        "support-escalation-runbook.md",
+        "security-and-data-handling.md"
+      ],
+      "chunk_ids": [
+        "support-escalation-runbook.md#chunk-1",
+        "enterprise-sla.md#chunk-1",
+        "support-escalation-runbook.md#chunk-6",
+        "support-escalation-runbook.md#chunk-3",
+        "security-and-data-handling.md#chunk-5"
+      ],
+      "top_document": "support-escalation-runbook.md",
+      "expected_documents": [
+        "enterprise-sla.md",
+        "support-escalation-runbook.md"
+      ],
+      "expected_retrieved": true,
+      "expected_ranked_first": true,
+      "cited_count": 2,
+      "source_count": 5,
+      "behaviour_ok": true,
+      "components": {
+        "retrieval_strength": 0.8146,
+        "consensus": 0.7956,
+        "citation_coverage": 1.0
+      },
+      "style": "standard",
+      "latency_ms": 1896.1,
+      "generation_ms": 1719.9,
+      "input_tokens": 2003,
+      "output_tokens": 368,
+      "cost_usd": 0.003843,
+      "verification_verdict": "pass",
+      "verification_rounds": 0,
+      "verification_ms": 2261.6,
+      "request_id": "33b3421a-e272-4b50-b9d5-403765abee9e"
+    },
+    {
+      "id": "Q5",
+      "question": "How do I set up SAML single sign-on?",
+      "expect": "answered",
+      "tests": "Chunking of Q&A-formatted prose rather than headed sections.",
+      "correct_answer": "Four steps: copy ACS URL and Entity ID, create the IdP app, map email and displayName, paste metadata back and verify.",
+      "status": 200,
+      "answer": "SAML SSO is available on Business and Enterprise plans and requires four steps [customer-onboarding-faq.md#chunk-1]:\n\n1. In Northwind, open **Settings \u2192 Authentication \u2192 SAML** and copy the Assertion Consumer Service URL and Entity ID.\n2. In your identity provider, create a new SAML application using those values. Supported providers include Okta, Microsoft Entra ID, Google Workspace, and any SAML 2.0\u2013compliant provider.\n3. Map the required attributes: `email` and `displayName` are mandatory; the optional `groups` attribute enables automatic role assignment.\n4. Paste the identity provider metadata XML back into Northwind and click **Verify** to run a test assertion.\n\nOnce verified, an administrator can enforce SSO organization-wide, which disables password login for all members except break-glass accounts [customer-onboarding-faq.md#chunk-2]. Northwind recommends keeping at least one break-glass administrator with password login enabled.",
+      "confidence": 0.86,
+      "grounding": "high",
+      "abstained": false,
+      "top_score": 0.7748,
+      "scores": [
+        0.7748,
+        0.5511,
+        0.3402,
+        0.2875,
+        0.2498
+      ],
+      "documents": [
+        "customer-onboarding-faq.md",
+        "customer-onboarding-faq.md",
+        "customer-onboarding-faq.md",
+        "enterprise-sla.md",
+        "acceptable-use-policy.md"
+      ],
+      "chunk_ids": [
+        "customer-onboarding-faq.md#chunk-1",
+        "customer-onboarding-faq.md#chunk-2",
+        "customer-onboarding-faq.md#chunk-0",
+        "enterprise-sla.md#chunk-3",
+        "acceptable-use-policy.md#chunk-1"
+      ],
+      "top_document": "customer-onboarding-faq.md",
+      "expected_documents": [
+        "customer-onboarding-faq.md"
+      ],
+      "expected_retrieved": true,
+      "expected_ranked_first": true,
+      "cited_count": 2,
+      "source_count": 5,
+      "behaviour_ok": true,
+      "components": {
+        "retrieval_strength": 0.9371,
+        "consensus": 0.5687,
+        "citation_coverage": 1.0
+      },
+      "style": "standard",
+      "latency_ms": 3962.1,
+      "generation_ms": 3430.1,
+      "input_tokens": 1871,
+      "output_tokens": 634,
+      "cost_usd": 0.005041,
+      "verification_verdict": "unverified",
+      "verification_rounds": 0,
+      "verification_ms": 2470.0,
+      "request_id": "54e534f9-8e1c-40e7-85ae-a4ff01fdf1d8"
+    },
+    {
+      "id": "Q6",
+      "question": "What happens if I exceed my monthly API request quota?",
+      "expect": "answered",
+      "tests": "Quantitative fact. The local harness abstained on this one incorrectly, which is what first exposed the relevance floor as miscalibrated.",
+      "correct_answer": "Service is not suspended; overage is billed automatically at the plan's rate.",
+      "status": 200,
+      "answer": "If you exceed your monthly API request quota, here's what happens:\n\n\u2022 **Service continues** \u2014 Your service is not suspended when you exceed the allowance [pricing-and-plans.md#chunk-2]\n\n\u2022 **Automatic overage billing** \u2014 You're billed automatically at the end of the billing period based on your plan: Starter ($2.00 per 10,000 requests), Business ($1.20 per 10,000 requests), or Enterprise ($0.60 per 10,000 requests) [pricing-and-plans.md#chunk-1]\n\n\u2022 **Optional spending cap** \u2014 You can enable a spending cap in billing settings to get a hard stop (HTTP 429 response) instead of allowing overages [pricing-and-plans.md#chunk-2]\n\n\u2022 **Alerts** \u2014 Account administrators receive email alerts at 80% and 100% of your included allowance [pricing-and-plans.md#chunk-2]\n\nNote: Overage charges are never refundable [pricing-and-plans.md#chunk-2].",
+      "confidence": 0.79,
+      "grounding": "high",
+      "abstained": false,
+      "top_score": 0.6815,
+      "scores": [
+        0.6815,
+        0.4971,
+        0.4804,
+        0.4509,
+        0.401
+      ],
+      "documents": [
+        "pricing-and-plans.md",
+        "pricing-and-plans.md",
+        "pricing-and-plans.md",
+        "acceptable-use-policy.md",
+        "refund-and-cancellation-policy.md"
+      ],
+      "chunk_ids": [
+        "pricing-and-plans.md#chunk-1",
+        "pricing-and-plans.md#chunk-3",
+        "pricing-and-plans.md#chunk-2",
+        "acceptable-use-policy.md#chunk-1",
+        "refund-and-cancellation-policy.md#chunk-2"
+      ],
+      "top_document": "pricing-and-plans.md",
+      "expected_documents": [
+        "pricing-and-plans.md"
+      ],
+      "expected_retrieved": true,
+      "expected_ranked_first": true,
+      "cited_count": 2,
+      "source_count": 5,
+      "behaviour_ok": true,
+      "components": {
+        "retrieval_strength": 0.7038,
+        "consensus": 0.7369,
+        "citation_coverage": 1.0
+      },
+      "style": "standard",
+      "latency_ms": 2688.2,
+      "generation_ms": 2500.9,
+      "input_tokens": 1807,
+      "output_tokens": 642,
+      "cost_usd": 0.005017,
+      "verification_verdict": "unverified",
+      "verification_rounds": 0,
+      "verification_ms": 2609.7,
+      "request_id": "b3c2e75c-d0d5-4621-9890-c678c051eff9"
+    },
+    {
+      "id": "Q7",
+      "question": "Who do I page if the on-call engineer does not respond within 15 minutes?",
+      "expect": "answered",
+      "tests": "Procedural retrieval from a numbered list.",
+      "correct_answer": "The secondary on-call; then the engineering manager on duty after a further 15 minutes.",
+      "status": 200,
+      "answer": "If the primary on-call engineer does not acknowledge within 15 minutes, the page automatically escalates to the **secondary on-call** [support-escalation-runbook.md#chunk-3].",
+      "confidence": 0.63,
+      "grounding": "medium",
+      "abstained": false,
+      "top_score": 0.6467,
+      "scores": [
+        0.6467,
+        0.6291,
+        0.5455,
+        0.4205,
+        0.33
+      ],
+      "documents": [
+        "support-escalation-runbook.md",
+        "support-escalation-runbook.md",
+        "support-escalation-runbook.md",
+        "enterprise-sla.md",
+        "enterprise-sla.md"
+      ],
+      "chunk_ids": [
+        "support-escalation-runbook.md#chunk-3",
+        "support-escalation-runbook.md#chunk-2",
+        "support-escalation-runbook.md#chunk-6",
+        "enterprise-sla.md#chunk-3",
+        "enterprise-sla.md#chunk-1"
+      ],
+      "top_document": "support-escalation-runbook.md",
+      "expected_documents": [
+        "support-escalation-runbook.md"
+      ],
+      "expected_retrieved": true,
+      "expected_ranked_first": true,
+      "cited_count": 1,
+      "source_count": 5,
+      "behaviour_ok": true,
+      "components": {
+        "retrieval_strength": 0.6167,
+        "consensus": 0.7954,
+        "citation_coverage": 0.5
+      },
+      "style": "standard",
+      "latency_ms": 1474.8,
+      "generation_ms": 1259.0,
+      "input_tokens": 1588,
+      "output_tokens": 183,
+      "cost_usd": 0.002503,
+      "verification_verdict": "pass",
+      "verification_rounds": 0,
+      "verification_ms": 1527.0,
+      "request_id": "60757430-7b31-44a2-b9ac-956c53b67388"
+    },
+    {
+      "id": "Q8",
+      "question": "Can I still get a refund 45 days after my invoice?",
+      "expect": "answered",
+      "tests": "NEGATION. Retrieval is easy; the model must reason that 45 > 30 and answer 'no' rather than reciting the policy and leaving the reader to infer it.",
+      "correct_answer": "No. The Enterprise window is 30 days and requests after it are not eligible.",
+      "status": 200,
+      "answer": "No. The refund window depends on your plan [refund-and-cancellation-policy.md#chunk-1]:\n\n- **Enterprise**: 30 days from invoice date\n- **Business**: 14 days from invoice date\n- **Starter**: Non-refundable\n\nAt 45 days after your invoice, you would be outside all applicable refund windows. Requests submitted after the deadline are not eligible for a refund, regardless of usage level [refund-and-cancellation-policy.md#chunk-1].",
+      "confidence": 0.58,
+      "grounding": "medium",
+      "abstained": false,
+      "top_score": 0.6008,
+      "scores": [
+        0.6008,
+        0.5528,
+        0.4936,
+        0.4068,
+        0.398
+      ],
+      "documents": [
+        "refund-and-cancellation-policy.md",
+        "refund-and-cancellation-policy.md",
+        "refund-and-cancellation-policy.md",
+        "enterprise-sla.md",
+        "pricing-and-plans.md"
+      ],
+      "chunk_ids": [
+        "refund-and-cancellation-policy.md#chunk-1",
+        "refund-and-cancellation-policy.md#chunk-4",
+        "refund-and-cancellation-policy.md#chunk-3",
+        "enterprise-sla.md#chunk-2",
+        "pricing-and-plans.md#chunk-4"
+      ],
+      "top_document": "refund-and-cancellation-policy.md",
+      "expected_documents": [
+        "refund-and-cancellation-policy.md"
+      ],
+      "expected_retrieved": true,
+      "expected_ranked_first": true,
+      "cited_count": 1,
+      "source_count": 5,
+      "behaviour_ok": true,
+      "components": {
+        "retrieval_strength": 0.5019,
+        "consensus": 0.8163,
+        "citation_coverage": 0.5
+      },
+      "style": "standard",
+      "latency_ms": 2307.7,
+      "generation_ms": 2095.5,
+      "input_tokens": 1747,
+      "output_tokens": 520,
+      "cost_usd": 0.004347,
+      "verification_verdict": "unverified",
+      "verification_rounds": 0,
+      "verification_ms": 2477.6,
+      "request_id": "bda23495-f58c-459c-98ec-0b2feb3cd9b4"
+    },
+    {
+      "id": "Q9",
+      "question": "What is the difference between a refund and a service credit?",
+      "expect": "answered",
+      "tests": "CROSS-DOCUMENT SYNTHESIS. The distinction is stated in both documents but never in one place.",
+      "correct_answer": "A refund returns money against the original payment; a service credit offsets a future invoice and is never paid in cash.",
+      "status": 200,
+      "answer": "\u2022 **Service credits** are applied against future invoices and are never paid out in cash [enterprise-sla.md#chunk-2]. They are issued when monthly uptime falls below the SLA commitment and are the sole remedy for missed uptime [enterprise-sla.md#chunk-2].\n\n\u2022 **Refunds** are actual money returned to the original payment method within 10 business days, or issued as a credit note/bank transfer for invoice customers [refund-and-cancellation-policy.md#chunk-4]. Refunds are governed by a separate policy and are only available for Enterprise (30 days) and Business (14 days) plans within specified windows [refund-and-cancellation-policy.md#chunk-1].\n\n\u2022 Critically, service credits are **not** refunds [enterprise-sla.md#chunk-2], and the two policies are separate [refund-and-cancellation-policy.md#chunk-0].",
+      "confidence": 0.64,
+      "grounding": "medium",
+      "abstained": false,
+      "top_score": 0.5376,
+      "scores": [
+        0.5376,
+        0.4913,
+        0.4814,
+        0.442,
+        0.3772
+      ],
+      "documents": [
+        "enterprise-sla.md",
+        "refund-and-cancellation-policy.md",
+        "refund-and-cancellation-policy.md",
+        "refund-and-cancellation-policy.md",
+        "pricing-and-plans.md"
+      ],
+      "chunk_ids": [
+        "enterprise-sla.md#chunk-2",
+        "refund-and-cancellation-policy.md#chunk-1",
+        "refund-and-cancellation-policy.md#chunk-0",
+        "refund-and-cancellation-policy.md#chunk-4",
+        "pricing-and-plans.md#chunk-2"
+      ],
+      "top_document": "enterprise-sla.md",
+      "expected_documents": [
+        "refund-and-cancellation-policy.md",
+        "enterprise-sla.md"
+      ],
+      "expected_retrieved": true,
+      "expected_ranked_first": true,
+      "cited_count": 4,
+      "source_count": 5,
+      "behaviour_ok": true,
+      "components": {
+        "retrieval_strength": 0.344,
+        "consensus": 0.8666,
+        "citation_coverage": 1.0
+      },
+      "style": "standard",
+      "latency_ms": 3039.6,
+      "generation_ms": 2814.6,
+      "input_tokens": 2189,
+      "output_tokens": 615,
+      "cost_usd": 0.005264,
+      "verification_verdict": "unverified",
+      "verification_rounds": 0,
+      "verification_ms": 3007.1,
+      "request_id": "f1752c1e-3bd8-42a6-bf8e-621008ba2972"
+    },
+    {
+      "id": "Q10",
+      "question": "Do you sign HIPAA Business Associate Agreements?",
+      "expect": "abstain",
+      "tests": "ABSTENTION. Nothing in the corpus mentions HIPAA. The nearby security document is a tempting near-miss.",
+      "correct_answer": "Should decline to answer.",
+      "status": 200,
+      "answer": "I could not find information about that in the knowledge base.",
+      "confidence": 0.22,
+      "grounding": "insufficient_context",
+      "abstained": true,
+      "top_score": 0.0,
+      "scores": [],
+      "documents": [],
+      "chunk_ids": [],
+      "top_document": null,
+      "expected_documents": [],
+      "expected_retrieved": false,
+      "expected_ranked_first": false,
+      "cited_count": 0,
+      "source_count": 0,
+      "behaviour_ok": true,
+      "components": {
+        "retrieval_strength": 0.0,
+        "consensus": 0.8753,
+        "citation_coverage": 0.0
+      },
+      "style": "standard",
+      "latency_ms": 219.3,
+      "generation_ms": 0.0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_usd": 0.0,
+      "verification_verdict": null,
+      "verification_rounds": null,
+      "verification_ms": null,
+      "request_id": "50d94c62-f6dc-4ca9-ac15-cd1f4f48118d"
+    },
+    {
+      "id": "Q11",
+      "question": "\u00bfCu\u00e1l es la pol\u00edtica de reembolsos para clientes enterprise?",
+      "expect": "answered",
+      "tests": "CROSS-LINGUAL. Question in Spanish against an English corpus. A false abstention here would be the most expensive failure mode in an enterprise assistant: refusing a question it can answer.",
+      "correct_answer": "Same as Q1: 30 days from the invoice date.",
+      "status": 200,
+      "answer": "Para clientes Enterprise, la pol\u00edtica de reembolsos es la siguiente [refund-and-cancellation-policy.md#chunk-1]:\n\n\u2022 **Ventana de reembolso**: 30 d\u00edas desde la fecha de la factura\n\u2022 **Aprobaci\u00f3n requerida**: El account manager asignado al contrato debe aprobar cada reembolso antes de que Finanzas lo procese\n\u2022 **C\u00e1lculo**: Los reembolsos aprobados se prorratean contra el tiempo de suscripci\u00f3n no utilizado, medido en d\u00edas completos desde la fecha de la solicitud [refund-and-cancellation-policy.md#chunk-2]\n\u2022 **No reembolsables**: Servicios profesionales ya entregados, cargos por exceso de API, tarifas de terceros y desarrollo personalizado aceptado por el cliente [refund-and-cancellation-policy.md#chunk-2]",
+      "confidence": 0.64,
+      "grounding": "medium",
+      "abstained": false,
+      "top_score": 0.5396,
+      "scores": [
+        0.5396,
+        0.5162,
+        0.4454,
+        0.4258,
+        0.4101
+      ],
+      "documents": [
+        "refund-and-cancellation-policy.md",
+        "refund-and-cancellation-policy.md",
+        "pricing-and-plans.md",
+        "remote-work-policy.pdf",
+        "refund-and-cancellation-policy.md"
+      ],
+      "chunk_ids": [
+        "refund-and-cancellation-policy.md#chunk-1",
+        "refund-and-cancellation-policy.md#chunk-0",
+        "pricing-and-plans.md#chunk-6",
+        "remote-work-policy.pdf#chunk-2",
+        "refund-and-cancellation-policy.md#chunk-2"
+      ],
+      "top_document": "refund-and-cancellation-policy.md",
+      "expected_documents": [
+        "refund-and-cancellation-policy.md"
+      ],
+      "expected_retrieved": true,
+      "expected_ranked_first": true,
+      "cited_count": 2,
+      "source_count": 5,
+      "behaviour_ok": true,
+      "components": {
+        "retrieval_strength": 0.3491,
+        "consensus": 0.8662,
+        "citation_coverage": 1.0
+      },
+      "style": "standard",
+      "latency_ms": 2798.7,
+      "generation_ms": 2411.7,
+      "input_tokens": 1927,
+      "output_tokens": 621,
+      "cost_usd": 0.005032,
+      "verification_verdict": "unverified",
+      "verification_rounds": 0,
+      "verification_ms": 2401.8,
+      "request_id": "a0cbb877-eabe-4b33-84d9-999b390c86ef"
+    }
+  ]
+}

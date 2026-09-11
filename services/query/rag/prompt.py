@@ -74,13 +74,23 @@ def system_prompt(style: str = DEFAULT_STYLE) -> str:
     return SYSTEM_PROMPTS.get(style, STANDARD_PROMPT)
 
 
-def build_user_message(question: str, hits: list[Hit]) -> str:
-    """Render the retrieved passages plus the question into a single user turn."""
+def build_user_message(question: str, hits: list[Hit], reviewer_note: str | None = None) -> str:
+    """Render the retrieved passages plus the question into a single user turn.
+
+    `reviewer_note` is what the verification pass found wrong with a previous answer
+    (nodes.py, `revise`). It is appended as its own tag, after the question, only when
+    present: the first generation of every request sends exactly the message main sends,
+    so retrieval and the first answer stay comparable across the two stacks. It is escaped
+    like everything else because it quotes the checker's output, which quotes the model's.
+    """
     passages = "\n".join(_render_passage(hit) for hit in hits)
-    return (
+    message = (
         f"<context>\n{passages}\n</context>\n\n"
         f"<question>{_escape(question)}</question>"
     )
+    if reviewer_note:
+        message += f"\n\n<reviewer_note>{_escape(reviewer_note)}</reviewer_note>"
+    return message
 
 
 def _render_passage(hit: Hit) -> str:

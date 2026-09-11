@@ -15,6 +15,7 @@
     "seed": "python scripts/seed.py",
     "configure": "python scripts/configure_client.py",
     "smoke": "python scripts/smoke_test.py",
+    "eval:compare": "python scripts/eval_compare.py",
     "client": "streamlit run client/streamlit_app.py --server.maxUploadSize 20 --theme.base light",
     "test": "npm run test:python && npm run test:infra",
     "test:python": "python -m pytest tests/ -q",
